@@ -37,7 +37,7 @@ z3_add_component(sat
     sat_xor_finder.cpp
   COMPONENT_DEPENDENCIES
     util
-    dd
+    Z3_dd
     grobner
     params
   PYG_FILES

@@ -1,4 +1,4 @@
-z3_add_component(dd
+z3_add_component(Z3_dd
   SOURCES
     dd_bdd.cpp
     dd_fdd.cpp
