@@ -178,6 +178,11 @@ set_property(TARGET libz3 APPEND PROPERTY
     PUBLIC_HEADER "${CMAKE_CURRENT_BINARY_DIR}/util/z3_version.h")
 
 install(TARGETS libz3
+  EXPORT LLVMExports
+  LIBRARY DESTINATION lib
+  ARCHIVE DESTINATION lib${LLVM_LIBDIR_SUFFIX})
+set_property(GLOBAL APPEND PROPERTY LLVM_EXPORTS libz3)
+install(TARGETS libz3
   EXPORT Z3_EXPORTED_TARGETS
   LIBRARY DESTINATION "${CMAKE_INSTALL_LIBDIR}"
   ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}" # On Windows this installs ``libz3.lib`` which CMake calls the "corresponding import library". Do we want this installed?
