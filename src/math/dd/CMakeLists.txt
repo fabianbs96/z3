@@ -4,5 +4,5 @@ z3_add_component(Z3_dd
     dd_fdd.cpp
     dd_pdd.cpp
   COMPONENT_DEPENDENCIES
-    util
+    Z3_util
 )

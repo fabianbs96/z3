@@ -4,5 +4,5 @@ z3_add_component(simplex
     model_based_opt.cpp
     bit_matrix.cpp
   COMPONENT_DEPENDENCIES
-    util
+    Z3_util
 )

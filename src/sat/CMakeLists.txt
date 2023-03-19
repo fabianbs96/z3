@@ -36,7 +36,7 @@ z3_add_component(sat
     sat_watched.cpp
     sat_xor_finder.cpp
   COMPONENT_DEPENDENCIES
-    util
+    Z3_util
     Z3_dd
     grobner
     params

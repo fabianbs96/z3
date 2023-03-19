@@ -8,7 +8,7 @@ z3_add_component(polynomial
     upolynomial.cpp
     upolynomial_factorization.cpp
   COMPONENT_DEPENDENCIES
-    util
+    Z3_util
   PYG_FILES
     algebraic_params.pyg
   EXTRA_REGISTER_MODULE_HEADERS

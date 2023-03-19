@@ -3,5 +3,5 @@ z3_add_component(interval
     interval_mpq.cpp
     dep_intervals.cpp
   COMPONENT_DEPENDENCIES
-    util
+    Z3_util
 )

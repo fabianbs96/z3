@@ -50,7 +50,7 @@ z3_add_component(ast
     well_sorted.cpp
   COMPONENT_DEPENDENCIES
     polynomial
-    util # Unnecessary? polynomial already depends on util
+    Z3_util # Unnecessary? polynomial already depends on util
   PYG_FILES
     pp_params.pyg
 )
