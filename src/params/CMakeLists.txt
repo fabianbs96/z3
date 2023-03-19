@@ -3,7 +3,7 @@ z3_add_component(params
     pattern_inference_params.cpp
     context_params.cpp
   COMPONENT_DEPENDENCIES
-    util
+    Z3_util
   PYG_FILES
     arith_rewriter_params.pyg
     array_rewriter_params.pyg

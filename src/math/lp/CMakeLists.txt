@@ -49,7 +49,7 @@ z3_add_component(lp
     square_sparse_matrix.cpp
     static_matrix.cpp
   COMPONENT_DEPENDENCIES
-    util
+    Z3_util
     polynomial
     nlsat
     smt_params

@@ -7,5 +7,5 @@ z3_add_component(fpa
     ast
     rewriter
     model
-    util
+    Z3_util
 )

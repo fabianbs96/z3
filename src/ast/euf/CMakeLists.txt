@@ -5,5 +5,5 @@ z3_add_component(euf
     euf_egraph.cpp
   COMPONENT_DEPENDENCIES
     ast
-    util
+    Z3_util
 )
