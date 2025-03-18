@@ -26,6 +26,18 @@ namespace euf {
 
 namespace bv {
 
+    struct lazy_mul {
+        expr_ref_vector m_out;
+        unsigned        m_bits;
+        lazy_mul(app* a, expr_ref_vector& out):
+            m_out(out), 
+            m_bits(0) {
+        }
+    };
+
+
+
+
     class solver : public euf::th_euf_solver {
         typedef rational numeral;
         typedef euf::theory_var theory_var;
@@ -37,7 +49,7 @@ namespace bv {
         typedef std::pair<numeral, unsigned> value_sort_pair;
         typedef pair_hash<obj_hash<numeral>, unsigned_hash> value_sort_pair_hash;
         typedef map<value_sort_pair, theory_var, value_sort_pair_hash, default_eq<value_sort_pair> > value2var;
-        typedef union_find<solver, euf::solver>  bv_union_find;
+        typedef union_find<solver>  bv_union_find;
         typedef std::pair<theory_var, unsigned> var_pos;
 
         friend class ackerman;
@@ -85,8 +97,19 @@ namespace bv {
         sat::justification mk_ne2bit_justification(unsigned idx, theory_var v1, theory_var v2, sat::literal c, sat::literal a);
         sat::ext_constraint_idx mk_bv2int_justification(theory_var v1, theory_var v2, euf::enode* a, euf::enode* b, euf::enode* c);
         void log_drat(bv_justification const& c);
+        class proof_hint : public euf::th_proof_hint {
+            bv_justification::kind_t   m_kind;
+            sat::literal_vector& m_proof_literals;
+            unsigned m_lit_head, m_lit_tail;
+            expr* a1 = nullptr, * a2 = nullptr, * b1 = nullptr, * b2 = nullptr;
+        public:
+            proof_hint(bv_justification::kind_t k, sat::literal_vector& pl, unsigned lh, unsigned lt, expr* a1 = nullptr, expr* a2 = nullptr, expr* b1 = nullptr, expr* b2 = nullptr) :
+                m_kind(k), m_proof_literals(pl), m_lit_head(lh), m_lit_tail(lt), a1(a1), a2(a2), b1(b1), b2(b2) {}
+            expr* get_hint(euf::solver& s) const override;
+        };
+        sat::literal_vector m_proof_literals;
+        unsigned m_lit_head = 0, m_lit_tail = 0;
  
-
         /**
            \brief Structure used to store the position of a bitvector variable that
            contains the true_literal/false_literal.
@@ -215,6 +238,7 @@ namespace bv {
         unsigned                   m_prop_queue_head = 0;
         sat::literal               m_true = sat::null_literal;
         euf::enode_vector          m_bv2ints;
+        obj_map<app, lazy_mul*>   m_lazymul;
 
         // internalize
         void insert_bv2a(bool_var bv, atom * a) { m_bool_var2atom.setx(bv, a, 0); }
@@ -280,6 +304,7 @@ namespace bv {
         bool m_cheap_axioms{ true };
         bool should_bit_blast(app * n);
         bool check_delay_internalized(expr* e);
+        bool check_lazy_mul(app* e, expr* mul_value, expr* arg_value);
         bool check_mul(app* e);
         bool check_mul_invertibility(app* n, expr_ref_vector const& arg_values, expr* value);
         bool check_mul_zero(app* n, expr_ref_vector const& arg_values, expr* value1, expr* value2);
@@ -296,7 +321,7 @@ namespace bv {
         
         // solving
         theory_var find(theory_var v) const { return m_find.find(v); }
-        void find_wpos(theory_var v);
+        bool find_wpos(theory_var v);
         void find_new_diseq_axioms(atom& a, theory_var v, unsigned idx);
         void mk_new_diseq_axiom(theory_var v1, theory_var v2, unsigned idx);
         bool get_fixed_value(theory_var v, numeral& result) const;
@@ -308,7 +333,6 @@ namespace bv {
         bool propagate_eq_occurs(eq_occurs const& occ);
         numeral const& power2(unsigned i) const;
         sat::literal mk_true();
-
 
         // invariants
         bool check_zero_one_bits(theory_var v);
@@ -325,6 +349,7 @@ namespace bv {
         bool is_extended_binary(sat::ext_justification_idx idx, literal_vector& r) override;
         bool is_external(bool_var v) override;
         void get_antecedents(literal l, sat::ext_justification_idx idx, literal_vector & r, bool probing) override;
+        euf::enode_pair get_justification_eq(size_t j) override;
         void asserted(literal l) override;
         sat::check_result check() override;
         void push_core() override;
@@ -360,12 +385,13 @@ namespace bv {
                         std::function<void(unsigned sz, literal const* c, unsigned const* coeffs, unsigned k)>& pb) override { return false; }
 
         bool to_formulas(std::function<expr_ref(sat::literal)>& l2e, expr_ref_vector& fmls) override { return false; }
-        sat::literal internalize(expr* e, bool sign, bool root, bool learned) override;
-        void internalize(expr* e, bool redundant) override;
+        sat::literal internalize(expr* e, bool sign, bool root) override;
+        void internalize(expr* e) override;
         void eq_internalized(euf::enode* n) override;
         euf::theory_var mk_var(euf::enode* n) override;
         void apply_sort_cnstr(euf::enode * n, sort * s) override;
 
+        bool_var get_bit(unsigned bit, euf::enode* n) const;
         
         void merge_eh(theory_var, theory_var, theory_var v1, theory_var v2);
         void after_merge_eh(theory_var r1, theory_var r2, theory_var v1, theory_var v2) { SASSERT(check_zero_one_bits(r1)); }

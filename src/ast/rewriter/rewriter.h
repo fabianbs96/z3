@@ -189,7 +189,7 @@ public:
 */
 class inv_var_shifter : public var_shifter_core {
 protected:
-    unsigned m_shift;
+    unsigned m_shift = 0;
     void process_var(var * v) override;
 public:
     inv_var_shifter(ast_manager & m):var_shifter_core(m) {}
@@ -346,8 +346,6 @@ public:
     ast_manager & m() const { return this->m_manager; }
     Config & cfg() { return m_cfg; }
     Config const & cfg() const { return m_cfg; }
-
-    ~rewriter_tpl() override;
     
     void reset();
     void cleanup();

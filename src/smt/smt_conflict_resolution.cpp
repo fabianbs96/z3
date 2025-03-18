@@ -52,9 +52,6 @@ namespace smt {
     {
     }
 
-    conflict_resolution::~conflict_resolution() {
-    }
-
     /**
        \brief Mark all enodes in a 'proof' tree branch starting at n
        n -> ... -> root
@@ -350,6 +347,7 @@ namespace smt {
         literal_vector & antecedents = m_tmp_literal_vector;
         antecedents.reset();
         justification2literals_core(js, antecedents);
+        m_ctx.get_clause_proof().propagate(consequent, *js, antecedents);
         for (literal l : antecedents)
             process_antecedent(l, num_marks);
         (void)consequent;
@@ -600,6 +598,7 @@ namespace smt {
 
         finalize_resolve(conflict, not_l);
 
+
         return true;
     }
 
@@ -751,7 +750,7 @@ namespace smt {
             }
             else {
                 if (j != i) {
-                    m_lemma[j]       = m_lemma[i];
+                    m_lemma[j] = l;
                     m_lemma_atoms.set(j, m_lemma_atoms.get(i));
                 }
                 j++;

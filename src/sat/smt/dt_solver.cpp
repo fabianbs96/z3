@@ -7,7 +7,7 @@ Module Name:
 
 Abstract:
 
-    Theory plugin for altegraic datatypes
+    Theory plugin for algebraic datatypes
 
 Author:
 
@@ -103,14 +103,15 @@ namespace dt {
     */
     void solver::assert_eq_axiom(enode* n1, expr* e2, literal antecedent) {
         expr* e1 = n1->get_expr();
+        euf::th_proof_hint* ph = ctx.mk_smt_prop_hint(name(), antecedent, e1, e2);
         if (antecedent == sat::null_literal)
-            add_unit(eq_internalize(e1, e2));
+            add_unit(eq_internalize(e1, e2), ph);
         else if (s().value(antecedent) == l_true) {
             euf::enode* n2 = e_internalize(e2);
-            ctx.propagate(n1, n2, euf::th_explain::propagate(*this, antecedent, n1, n2));
+            ctx.propagate(n1, n2, euf::th_explain::propagate(*this, antecedent, n1, n2, ph));
         }
         else
-            add_clause(~antecedent, eq_internalize(e1, e2));
+            add_clause(~antecedent, eq_internalize(e1, e2), ph);
     }
 
     /**
@@ -162,7 +163,8 @@ namespace dt {
         literal l = ctx.enode2literal(r);
         SASSERT(s().value(l) == l_false);
         clear_mark();
-        ctx.set_conflict(euf::th_explain::conflict(*this, ~l, c, r->get_arg(0)));
+        auto* ph = ctx.mk_smt_hint(name(), ~l, c, r->get_arg(0));
+        ctx.set_conflict(euf::th_explain::conflict(*this, ~l, c, r->get_arg(0), ph));
     }
 
     /**
@@ -200,7 +202,9 @@ namespace dt {
         // update_field is identity if 'n' is not created by a matching constructor.        
         assert_eq_axiom(n, arg1, ~is_con);
         app_ref n_is_con(m.mk_app(rec, own), m);
-        add_clause(~is_con, mk_literal(n_is_con));
+        literal _n_is_con = mk_literal(n_is_con);
+        auto* ph = ctx.mk_smt_hint(name(), is_con, ~_n_is_con);
+        add_clause(~is_con, _n_is_con, ph);
     }
 
     euf::theory_var solver::mk_var(enode* n) {
@@ -309,7 +313,8 @@ namespace dt {
                 }
             }
         }
-        ctx.set_conflict(euf::th_explain::conflict(*this, m_lits));
+        auto* ph = ctx.mk_smt_hint(name(), m_lits);
+        ctx.set_conflict(euf::th_explain::conflict(*this, m_lits, ph));
     }
 
     /**
@@ -395,7 +400,7 @@ namespace dt {
             return;
         }
         SASSERT(val == l_undef || (val == l_false && !d->m_constructor));
-        ctx.push(set_vector_idx_trail<enode>(d->m_recognizers, c_idx));
+        ctx.push(set_vector_idx_trail(d->m_recognizers, c_idx));
         d->m_recognizers[c_idx] = recognizer;
         if (val == l_false)
             propagate_recognizer(v, recognizer);
@@ -445,8 +450,10 @@ namespace dt {
             ++idx;
         }
         TRACE("dt", tout << "propagate " << num_unassigned << " eqs: " << eqs.size() << "\n";);
-        if (num_unassigned == 0)
-            ctx.set_conflict(euf::th_explain::conflict(*this, m_lits, eqs));
+        if (num_unassigned == 0) {
+            auto* ph = ctx.mk_smt_hint(name(), m_lits, eqs);
+            ctx.set_conflict(euf::th_explain::conflict(*this, m_lits, eqs, ph));
+        }
         else if (num_unassigned == 1) {
             // propagate remaining recognizer
             SASSERT(!m_lits.empty());
@@ -460,7 +467,13 @@ namespace dt {
                 app_ref rec_app(m.mk_app(rec, n->get_expr()), m);
                 consequent = mk_literal(rec_app);
             }
-            ctx.propagate(consequent, euf::th_explain::propagate(*this, m_lits, eqs, consequent));
+            euf::th_proof_hint* ph = nullptr;
+            if (ctx.use_drat()) {
+                m_lits.push_back(~consequent);
+                ph = ctx.mk_smt_hint(name(), m_lits, eqs);
+                m_lits.pop_back();
+            }
+            ctx.propagate(consequent, euf::th_explain::propagate(*this, m_lits, eqs, consequent, ph));
         }
         else if (get_config().m_dt_lazy_splits == 0 || (!srt->is_infinite() && get_config().m_dt_lazy_splits == 1))
             // there are more than 2 unassigned recognizers...
@@ -477,7 +490,7 @@ namespace dt {
         auto* con2 = d2->m_constructor;
         TRACE("dt", tout << "merging v" << v1 << " v" << v2 << "\n" << ctx.bpp(var2enode(v1)) << " == " << ctx.bpp(var2enode(v2)) << " " << ctx.bpp(con1) << " " << ctx.bpp(con2) << "\n";);
         if (con1 && con2 && con1->get_decl() != con2->get_decl())
-            ctx.set_conflict(euf::th_explain::conflict(*this, con1, con2));
+            ctx.set_conflict(euf::th_explain::conflict(*this, con1, con2, ctx.mk_smt_hint(name(), con1, con2)));
         else if (con2 && !con1) {
             ctx.push(set_ptr_trail<enode>(d1->m_constructor));
             // check whether there is a recognizer in d1 that conflicts with con2;
@@ -541,12 +554,12 @@ namespace dt {
     }
 
     // Assuming `app` is equal to a constructor term, return the constructor enode
-    inline euf::enode* solver::oc_get_cstor(enode* app) {
+    inline euf::enode* solver::oc_get_cstor(enode* app) const {
         theory_var v = app->get_root()->get_th_var(get_id());
-        SASSERT(v != euf::null_theory_var);
+        if (v == euf::null_theory_var)
+            return nullptr;
         v = m_find.find(v);
         var_data* d = m_var_data[v];
-        SASSERT(d->m_constructor);
         return d->m_constructor;
     }
 
@@ -702,7 +715,7 @@ namespace dt {
 
         if (res) {
             clear_mark();
-            ctx.set_conflict(euf::th_explain::conflict(*this, m_used_eqs));
+            ctx.set_conflict(euf::th_explain::conflict(*this, m_used_eqs, ctx.mk_smt_hint(name(), m_used_eqs)));
             TRACE("dt", tout << "occurs check conflict: " << ctx.bpp(n) << "\n";);
         }
         return res;
@@ -744,7 +757,7 @@ namespace dt {
 
     void solver::get_antecedents(literal l, sat::ext_justification_idx idx, literal_vector& r, bool probing) {
         auto& jst = euf::th_explain::from_index(idx);
-        ctx.get_antecedents(l, jst, r, probing);
+        ctx.get_th_antecedents(l, jst, r, probing);
     }
 
     void solver::add_value(euf::enode* n, model& mdl, expr_ref_vector& values) {
@@ -770,7 +783,7 @@ namespace dt {
         if (v == euf::null_theory_var) 
             return false;
         euf::enode* con = m_var_data[m_find.find(v)]->m_constructor;
-        CTRACE("dt", !con, display(tout) << ctx.bpp(n) << "\n";);
+        TRACE("dt", display(tout) << ctx.bpp(n) << " con: " << ctx.bpp(con) << "\n";);
         if (con->num_args() == 0)
             dep.insert(n, nullptr);
         for (enode* arg : euf::enode_args(con))
@@ -781,18 +794,17 @@ namespace dt {
     bool solver::include_func_interp(func_decl* f) const {
         if (!dt.is_accessor(f))
             return false;
-        func_decl* con = dt.get_accessor_constructor(f);
-        for (enode* app : ctx.get_egraph().enodes_of(f)) {
-            enode* arg = app->get_arg(0)->get_root();
-            if (is_constructor(arg) && arg->get_decl() != con) 
+        func_decl* con_decl = dt.get_accessor_constructor(f);
+        for (enode* app : ctx.get_egraph().enodes_of(f)) {   
+            enode* con = oc_get_cstor(app->get_arg(0));
+            if (con && is_constructor(con) && con->get_decl() != con_decl) 
                 return true;
         }
         return false; 
     }
 
-
-    sat::literal solver::internalize(expr* e, bool sign, bool root, bool redundant) {
-        if (!visit_rec(m, e, sign, root, redundant)) 
+    sat::literal solver::internalize(expr* e, bool sign, bool root) {
+        if (!visit_rec(m, e, sign, root)) 
             return sat::null_literal;        
         auto lit = ctx.expr2literal(e);
         if (sign)
@@ -800,15 +812,15 @@ namespace dt {
         return lit;
     }
 
-    void solver::internalize(expr* e, bool redundant) {
-        visit_rec(m, e, false, false, redundant);
+    void solver::internalize(expr* e) {
+        visit_rec(m, e, false, false);
     }
 
     bool solver::visit(expr* e) {
         if (visited(e))
             return true;
         if (!is_app(e) || to_app(e)->get_family_id() != get_id()) {
-            ctx.internalize(e, m_is_redundant);
+            ctx.internalize(e);
             if (is_datatype(e))
                 mk_var(expr2enode(e));
             return true;

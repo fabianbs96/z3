@@ -1,5 +1,4 @@
-/*++
-Copyright (c) 2012 Microsoft Corporation
+/*++ Copyright (c) 2012 Microsoft Corporation
 
 Module Name:
 
@@ -25,6 +24,9 @@ Notes:
 #include "solver/tactic2solver.h"
 #include "solver/solver_na2as.h"
 #include "solver/mus.h"
+#include "smt/params/smt_params.h"
+#include "smt/params/smt_params_helper.hpp"
+
 
 /**
    \brief Simulates the incremental solver interface using a tactic.
@@ -48,6 +50,7 @@ class tactic2solver : public solver_na2as {
     bool                         m_produce_proofs;
     bool                         m_produce_unsat_cores;
     statistics                   m_stats;
+    bool                         m_minimizing = false;
     
 public:
     tactic2solver(ast_manager & m, tactic * t, params_ref const & p, bool produce_proofs, bool produce_models, bool produce_unsat_cores, symbol const & logic);
@@ -70,7 +73,7 @@ public:
     void collect_statistics(statistics & st) const override;
     void get_unsat_core(expr_ref_vector & r) override;
     void get_model_core(model_ref & m) override;
-    proof * get_proof() override;
+    proof * get_proof_core() override;
     std::string reason_unknown() const override;
     void set_reason_unknown(char const* msg) override;
     void get_labels(svector<symbol> & r) override {}
@@ -83,6 +86,10 @@ public:
     phase* get_phase() override { return nullptr; }
     void set_phase(phase* p) override { }
     void move_to_front(expr* e) override { }
+
+    void register_on_clause(void* ctx, user_propagator::on_clause_eh_t& on_clause) override {
+        m_tactic->register_on_clause(ctx, on_clause);
+    }
 
     void user_propagate_init(
         void* ctx,
@@ -111,6 +118,10 @@ public:
     void user_propagate_register_expr(expr* e) override {
         m_tactic->user_propagate_register_expr(e);
     }
+    
+    void user_propagate_initialize_value(expr* var, expr* value) override {
+        m_tactic->user_propagate_initialize_value(var, value);
+    }
 
     void user_propagate_register_created(user_propagator::created_eh_t& created_eh) override {
         m_tactic->user_propagate_register_created(created_eh);
@@ -131,6 +142,10 @@ public:
         IF_VERBOSE(1, verbose_stream() << "cubing is not supported on tactics\n");
         return expr_ref_vector(get_manager());
     }
+
+    expr* congruence_next(expr* e) override { return e; }
+    expr* congruence_root(expr* e) override { return e; }
+    expr_ref congruence_explain(expr* a, expr* b) override { return expr_ref(get_manager().mk_eq(a, b), get_manager()); }
 
     model_converter_ref get_model_converter() const override { return m_mc; }
 
@@ -166,6 +181,7 @@ tactic2solver::~tactic2solver() {
 
 void tactic2solver::updt_params(params_ref const & p) {
     solver::updt_params(p);
+    m_produce_unsat_cores |= p.get_bool("unsat_core", false);
 }
 
 void tactic2solver::collect_param_descrs(param_descrs & r) {
@@ -254,14 +270,14 @@ lbool tactic2solver::check_sat_core2(unsigned num_assumptions, expr * const * as
 
     }
     catch (z3_error & ex) {
-        TRACE("tactic2solver", tout << "exception: " << ex.msg() << "\n";);
+        TRACE("tactic2solver", tout << "exception: " << ex.what() << "\n";);
         m_result->m_proof = pr;
         throw ex;
     }
     catch (z3_exception & ex) {
-        TRACE("tactic2solver", tout << "exception: " << ex.msg() << "\n";);
+        TRACE("tactic2solver", tout << "exception: " << ex.what() << "\n";);
         m_result->set_status(l_undef);
-        m_result->m_unknown = ex.msg();
+        m_result->m_unknown = ex.what();
         m_result->m_proof = pr;
     }
     m_tactic->collect_statistics(m_result->m_stats);
@@ -282,9 +298,6 @@ solver* tactic2solver::translate(ast_manager& m, params_ref const& p) {
     tactic* t = m_tactic->translate(m);
     tactic2solver* r = alloc(tactic2solver, m, t, p, m_produce_proofs, m_produce_models, m_produce_unsat_cores, m_logic);
     r->m_result = nullptr;
-    if (!m_scopes.empty()) {
-        throw default_exception("translation of contexts is only supported at base level");
-    }
     ast_translation tr(m_assertions.get_manager(), m, false);
     
     for (unsigned i = 0; i < get_num_assertions(); ++i) {
@@ -302,6 +315,16 @@ void tactic2solver::collect_statistics(statistics & st) const {
 void tactic2solver::get_unsat_core(expr_ref_vector & r) {
     if (m_result.get()) {
         m_result->get_unsat_core(r);
+        if (!m_minimizing && smt_params_helper(get_params()).core_minimize()) {
+            flet<bool> minimizing(m_minimizing, true);
+            mus mus(*this);
+            mus.add_soft(r.size(), r.data());
+            expr_ref_vector r2(m);
+            if (l_true == mus.get_mus(r2)) {
+                r.reset();
+                r.append(r2);
+            }
+        }
     }
 }
 
@@ -311,9 +334,9 @@ void tactic2solver::get_model_core(model_ref & m) {
     }
 }
 
-proof * tactic2solver::get_proof() {
+proof * tactic2solver::get_proof_core() {
     if (m_result.get())
-        return m_result->get_proof();
+        return m_result->get_proof_core();
     else
         return nullptr;
 }

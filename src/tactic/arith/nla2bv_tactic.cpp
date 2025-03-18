@@ -27,8 +27,8 @@ Notes:
 #include "util/optional.h"
 #include "tactic/arith/bv2int_rewriter.h"
 #include "tactic/arith/bv2real_rewriter.h"
-#include "tactic/generic_model_converter.h"
-#include "tactic/arith/bound_manager.h"
+#include "ast/converters/generic_model_converter.h"
+#include "ast/simplifiers/bound_manager.h"
 #include "util/obj_pair_hashtable.h"
 #include "ast/ast_smt2_pp.h"
 
@@ -79,8 +79,6 @@ class nla2bv_tactic : public tactic {
             m_default_bv_size = m_num_bits = p.get_uint("nla2bv_bv_size", 4);
         }
 
-        ~imp() {}
-
         void updt_params(params_ref const& p)  {} 
         
         void operator()(goal & g, model_converter_ref & mc) {
@@ -89,7 +87,8 @@ class nla2bv_tactic : public tactic {
                   );
             tactic_report report("nla->bv", g);
             m_fmc = alloc(generic_model_converter, m_manager, "nla2bv");
-            m_bounds(g);
+            for (unsigned i = 0; i < g.size(); ++i)
+                m_bounds(g.form(i), g.dep(i), g.pr(i));
             collect_power2(g);
             switch (collect_vars(g)) {
             case has_num: 
@@ -132,7 +131,7 @@ class nla2bv_tactic : public tactic {
             for (auto const& kv : p2) {
                 expr* v = kv.m_value;
                 unsigned num_bits = m_bv.get_bv_size(v);
-                expr* w = m_bv.mk_bv2int(m_bv.mk_bv_shl(m_bv.mk_numeral(1, num_bits), v));
+                expr* w = m_bv.mk_ubv2int(m_bv.mk_bv_shl(m_bv.mk_numeral(1, num_bits), v));
                 m_trail.push_back(w);
                 m_subst.insert(kv.m_key, w);
                 TRACE("nla2bv", tout << mk_ismt2_pp(kv.m_key, m_manager) << " " << mk_ismt2_pp(w, m_manager) << "\n";);
@@ -236,7 +235,7 @@ class nla2bv_tactic : public tactic {
             bv_sort = m_bv.mk_sort(num_bits);
             s_bv = m_manager.mk_fresh_const(n->get_decl()->get_name(), bv_sort);
             m_fmc->hide(s_bv);
-            s_bv = m_bv.mk_bv2int(s_bv);
+            s_bv = m_bv.mk_ubv2int(s_bv);
             if (low) {
                 if (!(*low).is_zero()) {
                     //    low <= s_bv 
@@ -442,9 +441,9 @@ public:
 
     void collect_param_descrs(param_descrs & r) override {
         r.insert("nla2bv_max_bv_size", CPK_UINT, "(default: inf) maximum bit-vector size used by nla2bv tactic");
-        r.insert("nla2bv_bv_size", CPK_UINT, "(default: 4) default bit-vector size used by nla2bv tactic.");
-        r.insert("nla2bv_root", CPK_UINT, "(default: 2) nla2bv tactic encodes reals into bit-vectors using expressions of the form a+b*sqrt(c), this parameter sets the value of c used in the encoding.");
-        r.insert("nla2bv_divisor", CPK_UINT, "(default: 2) nla2bv tactic parameter.");
+        r.insert("nla2bv_bv_size", CPK_UINT, "default bit-vector size used by nla2bv tactic.", "4");
+        r.insert("nla2bv_root", CPK_UINT, "nla2bv tactic encodes reals into bit-vectors using expressions of the form a+b*sqrt(c), this parameter sets the value of c used in the encoding.", "2");
+        r.insert("nla2bv_divisor", CPK_UINT, "nla2bv tactic parameter.", "2");
     }
     
     /**

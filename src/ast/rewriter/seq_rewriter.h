@@ -201,7 +201,7 @@ class seq_rewriter {
     expr_ref mk_der_compl(expr* a);
     expr_ref mk_der_cond(expr* cond, expr* ele, sort* seq_sort);
     expr_ref mk_der_antimirov_union(expr* r1, expr* r2);
-    bool ite_bdds_compatabile(expr* a, expr* b);
+    bool ite_bdds_compatible(expr* a, expr* b);
     /* if r has the form deriv(en..deriv(e1,to_re(s))..) returns 's = [e1..en]' else returns '() in r'*/
     expr_ref is_nullable_symbolic_regex(expr* r, sort* seq_sort);
     #ifdef Z3DEBUG
@@ -340,6 +340,7 @@ class seq_rewriter {
     bool is_sequence(expr* e, expr_ref_vector& seq);
     bool is_sequence(eautomaton& aut, expr_ref_vector& seq);
     bool get_lengths(expr* e, expr_ref_vector& lens, rational& pos);
+    bool reduce_value_clash(expr_ref_vector& ls, expr_ref_vector& rs, expr_ref_pair_vector& new_eqs);
     bool reduce_back(expr_ref_vector& ls, expr_ref_vector& rs, expr_ref_pair_vector& new_eqs);
     bool reduce_front(expr_ref_vector& ls, expr_ref_vector& rs, expr_ref_pair_vector& new_eqs);
     void remove_empty_and_concats(expr_ref_vector& es);
@@ -352,9 +353,12 @@ class seq_rewriter {
 
     void intersect(unsigned lo, unsigned hi, svector<std::pair<unsigned, unsigned>>& ranges);
 
+    bool get_bounds(expr* e, unsigned& low, unsigned& high);
+    lbool some_string_in_re(expr_mark& visited, expr* r, unsigned_vector& str);
+
 public:
     seq_rewriter(ast_manager & m, params_ref const & p = params_ref()):
-        m_util(m), m_autil(m), m_br(m), m_re2aut(m), m_op_cache(m), m_es(m), 
+        m_util(m), m_autil(m), m_br(m, p), m_re2aut(m), m_op_cache(m), m_es(m), 
         m_lhs(m), m_rhs(m), m_coalesce_chars(true) {
     }
     ast_manager & m() const { return m_util.get_manager(); }
@@ -431,5 +435,12 @@ public:
     expr_ref mk_regex_union_normalize(expr* r1, expr* r2);
     /* Apply simplifications to the intersection to keep it normalized (r1 and r2 are not normalized)*/
     expr_ref mk_regex_inter_normalize(expr* r1, expr* r2);
+
+    /*
+    * Extract some string that is a member of r. 
+    * Return true if a valid string was extracted.
+    * Return false when giving up or the regular expression is empty.
+    */
+    lbool some_string_in_re(expr* r, zstring& s);
 };
 

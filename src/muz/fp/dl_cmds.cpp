@@ -56,8 +56,7 @@ struct dl_context {
         m_cmd(ctx),
         m_collected_cmds(collected_cmds),
         m_ref_count(0),
-        m_decl_plugin(nullptr),
-        m_trail() {}
+        m_decl_plugin(nullptr) {}
 
     void inc_ref() {
         ++m_ref_count;
@@ -160,17 +159,14 @@ struct dl_context {
 */
 class dl_rule_cmd : public cmd {
     ref<dl_context> m_dl_ctx;
-    mutable unsigned     m_arg_idx;
-    expr*        m_t;
+    mutable unsigned     m_arg_idx = 0;
+    expr* m_t = nullptr;
     symbol       m_name;
-    unsigned     m_bound;
+    unsigned     m_bound = UINT_MAX;
 public:
     dl_rule_cmd(dl_context * dl_ctx):
         cmd("rule"),
-        m_dl_ctx(dl_ctx),
-        m_arg_idx(0),
-        m_t(nullptr),
-        m_bound(UINT_MAX) {}
+        m_dl_ctx(dl_ctx) {}
     char const * get_usage() const override { return "(forall (q) (=> (and body) head)) :optional-name :optional-recursion-bound"; }
     char const * get_descr(cmd_context & ctx) const override { return "add a Horn rule."; }
     unsigned get_arity() const override { return VAR_ARITY; }
@@ -194,10 +190,9 @@ public:
         m_bound = bound;
         m_arg_idx++;
     }
-    void reset(cmd_context & ctx) override { m_dl_ctx->reset(); prepare(ctx); m_t = nullptr; }
-    void prepare(cmd_context& ctx) override { m_arg_idx = 0; m_name = symbol::null; m_bound = UINT_MAX; }
-    void finalize(cmd_context & ctx) override {
-    }
+    void reset(cmd_context& ctx) override { m_dl_ctx->reset(); prepare(ctx); m_t = nullptr; }
+    void prepare(cmd_context& ctx) override {  m_arg_idx = 0; m_t = nullptr;  m_name = symbol::null; m_bound = UINT_MAX; }
+    void finalize(cmd_context & ctx) override {}
     void execute(cmd_context & ctx) override {
         if (!m_t) throw cmd_exception("invalid rule, expected formula");
         m_dl_ctx->add_rule(m_t, m_name, m_bound);
@@ -265,12 +260,12 @@ public:
                 status = dlctx.rel_query(1, &m_target);
             }
             catch (z3_error & ex) {
-                ctx.regular_stream() << "(error \"query failed: " << ex.msg() << "\")" << std::endl;
+                ctx.regular_stream() << "(error \"query failed: " << ex.what() << "\")" << std::endl;
                 print_statistics(ctx);
                 throw ex;
             }
             catch (z3_exception& ex) {
-                ctx.regular_stream() << "(error \"query failed: " << ex.msg() << "\")" << std::endl;
+                ctx.regular_stream() << "(error \"query failed: " << ex.what() << "\")" << std::endl;
                 query_exn = true;
             }
         }

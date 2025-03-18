@@ -71,7 +71,7 @@ namespace smt {
         ensure_var(v1);
         ensure_var(v2);
         literal_vector ls;
-        ls.push_back(l);
+        ls.push_back(l);        
         return m_graph.add_non_strict_edge(v1, v2, ls) && m_graph.add_non_strict_edge(v2, v1, ls);
     }
 
@@ -130,6 +130,11 @@ namespace smt {
     }
 
     bool theory_special_relations::internalize_term(app * term) {
+        m_terms.push_back(term);
+        ctx.push_trail(push_back_vector(m_terms));
+        std::stringstream strm;
+        strm << "term not not handled by special relations procedure. Use sat.smt=true " << mk_pp(term, m);
+        warning_msg(strm.str().c_str());
         return false;
     }
 
@@ -156,9 +161,8 @@ namespace smt {
     }
 
     theory_var theory_special_relations::mk_var(expr* e) {
-        if (!ctx.e_internalized(e)) {
+        if (!ctx.e_internalized(e)) 
             ctx.internalize(e, false);
-        }
         enode * n = ctx.get_enode(e);
         theory_var v = n->get_th_var(get_id());
         if (null_theory_var == v) {
@@ -207,9 +211,10 @@ namespace smt {
         if (new_equality) {
             return FC_CONTINUE;
         }
-        else {
+        else if (!m_terms.empty()) 
+            return FC_GIVEUP;
+        else 
             return FC_DONE;
-        }
     }
 
     lbool theory_special_relations::final_check_lo(relation& r) {
@@ -405,6 +410,12 @@ namespace smt {
                 TRACE("special_relations", tout << "already: " << a.v2() << " <= " << a.v1() << "\n";);
                 continue;
             }
+            if (a.v1() == a.v2()) {
+                r.m_explanation.reset();
+                r.m_explanation.push_back(a.explanation());
+                set_conflict(r);                
+                return l_false;
+            }
             // the nodes visited from v1 become target for v2
             if (r.m_graph.reachable(a.v2(), visited, target, w)) {
                 //
@@ -582,18 +593,18 @@ namespace smt {
     lbool theory_special_relations::final_check_po(relation& r) {
         for (atom* ap : r.m_asserted_atoms) {
             atom& a = *ap;
-            if (!a.phase() && r.m_uf.find(a.v1()) == r.m_uf.find(a.v2())) {
-                // v1 !-> v2
-                // find v1 -> v3 -> v4 -> v2 path
-                r.m_explanation.reset();
-                unsigned timestamp = r.m_graph.get_timestamp();
-                bool found_path = r.m_graph.find_shortest_reachable_path(a.v1(), a.v2(), timestamp, r);
-                if (found_path) {
-                    TRACE("special_relations", tout << "check po conflict\n";);
-                    r.m_explanation.push_back(a.explanation());
-                    set_conflict(r);
-                    return l_false;
-                }
+            if (a.phase())
+                continue;
+            // v1 !-> v2
+            // find v1 -> v3 -> v4 -> v2 path
+            r.m_explanation.reset();
+            unsigned timestamp = r.m_graph.get_timestamp();
+            bool found_path = a.v1() == a.v2() || r.m_graph.find_shortest_reachable_path(a.v1(), a.v2(), timestamp, r);
+            if (found_path) {
+                TRACE("special_relations", tout << "check po conflict\n";);
+                r.m_explanation.push_back(a.explanation());
+                set_conflict(r);
+                return l_false;
             }
         }
         return l_true;
@@ -601,9 +612,8 @@ namespace smt {
 
     void theory_special_relations::propagate() {
         if (m_can_propagate) {
-            for (auto const& kv : m_relations) {
+            for (auto const& kv : m_relations) 
                 propagate(*kv.m_value);
-            }
             m_can_propagate = false;
         }
     }
@@ -883,9 +893,20 @@ namespace smt {
 
         func_decl* memf, *nextf, *connectedf;
 
+        std::string member, next, connected_sym, id;
+        auto const& pa = r.decl()->get_parameter(0);
+        if (pa.is_int())
+            id = std::to_string(pa.get_int());
+        else if (pa.is_ast() && is_func_decl(pa.get_ast()))
+            id = to_func_decl(pa.get_ast())->get_name().str();
+        else
+            throw default_exception("expected an integer or function declaration");        
+        member = "member" + id;
+        next = "next" + id;
+        connected_sym = "connected" + id;
         {
             sort* dom[2] = { s, listS };
-            recfun::promise_def mem = p.ensure_def(symbol("member"), 2, dom, m.mk_bool_sort(), true);
+            recfun::promise_def mem = p.ensure_def(symbol(member), 2, dom, m.mk_bool_sort(), true);
             memf = mem.get_def()->get_decl();
             
             var_ref xV(m.mk_var(1, s), m);
@@ -908,7 +929,7 @@ namespace smt {
 
         {
             sort* dom[5] = { s, s, listS, listS, tup };
-            recfun::promise_def nxt = p.ensure_def(symbol("next"), 5, dom, tup, true);
+            recfun::promise_def nxt = p.ensure_def(symbol(next), 5, dom, tup, true);
             nextf = nxt.get_def()->get_decl();
             
             expr_ref next_body(m);
@@ -929,7 +950,7 @@ namespace smt {
 
         {
             sort* dom[3] = { listS, s, listS };
-            recfun::promise_def connected = p.ensure_def(symbol("connected"), 3, dom, m.mk_bool_sort(), true);
+            recfun::promise_def connected = p.ensure_def(symbol(connected_sym), 3, dom, m.mk_bool_sort(), true);
             connectedf = connected.get_def()->get_decl();
             var_ref AV(m.mk_var(2, listS), m);
             var_ref dstV(m.mk_var(1, s), m);
@@ -1124,12 +1145,12 @@ namespace smt {
     }
 
     void theory_special_relations::display(std::ostream & out) const {
-        if (m_relations.empty()) return;
+        if (m_relations.empty())
+            return;
         out << "Theory Special Relations\n";
         display_var2enode(out);
-        for (auto const& kv : m_relations) {
+        for (auto const& kv : m_relations) 
             kv.m_value->display(*this, out);
-        }
     }
 
     void theory_special_relations::collect_asserted_po_atoms(vector<std::pair<bool_var, bool>>& atoms) const {

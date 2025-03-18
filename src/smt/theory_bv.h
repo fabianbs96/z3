@@ -188,6 +188,7 @@ namespace smt {
         void internalize_urem(app * n);
         void internalize_srem(app * n);
         void internalize_smod(app * n);
+        void internalize_udiv_quot_rem(app* n);
         void internalize_shl(app * n);
         void internalize_lshr(app * n);
         void internalize_ashr(app * n);
@@ -195,6 +196,7 @@ namespace smt {
         void internalize_ext_rotate_right(app * n);
         void internalize_and(app * n);
         void internalize_or(app * n);
+        void internalize_neg(app * n);
         void internalize_not(app * n);
         void internalize_nand(app * n);
         void internalize_nor(app * n);
@@ -227,6 +229,8 @@ namespace smt {
         void assign_bit(literal consequent, theory_var v1, theory_var v2, unsigned idx, literal antecedent, bool propagate_eqc);
         void assert_int2bv_axiom(app* n);
         void assert_bv2int_axiom(app* n);
+        void assert_udiv_quot_rem_axiom(app * n);
+
 
     protected:
         theory_var mk_var(enode * n) override;
@@ -247,6 +251,7 @@ namespace smt {
         bool merge_zero_one_bits(theory_var r1, theory_var r2);
         bool can_propagate() override { return m_prop_diseqs_qhead < m_prop_diseqs.size(); }
         void propagate() override;
+        void initialize_value(expr* var, expr* value) override;
 
         // -----------------------------------
         //
@@ -263,7 +268,6 @@ namespace smt {
         typedef std::pair<enode*, unsigned> var_enode_pos;
         
         theory_bv(context& ctx);
-        ~theory_bv() override;
         
         theory * mk_fresh(context * new_ctx) override;
 
@@ -287,7 +291,7 @@ namespace smt {
         bool is_fixed_propagated(theory_var v, expr_ref& val, literal_vector& explain) override;
 
         var_enode_pos get_bv_with_theory(bool_var v, theory_id id) const;
-        bool_var get_first_unassigned(unsigned start_bit, enode* n) const;
+        bool_var get_bit(unsigned bit, enode* n) const;
 
         bool check_assignment(theory_var v);
         bool check_invariant();

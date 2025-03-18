@@ -41,7 +41,7 @@ namespace smt {
         /**
            \brief Fallback for the two previous methods.
         */
-        virtual void operator()(relevancy_propagator & rp) {}
+        virtual void operator()(relevancy_propagator & rp) = 0;
     };
 
     class simple_relevancy_eh : public relevancy_eh {

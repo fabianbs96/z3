@@ -116,7 +116,7 @@ extern "C" {
         RESET_ERROR_CODE();
         std::ostringstream buffer;
         to_params(p)->m_params.display(buffer);
-        return mk_c(c)->mk_external_string(buffer.str());
+        return mk_c(c)->mk_external_string(std::move(buffer).str());
         Z3_CATCH_RETURN("");
     }
 
@@ -191,7 +191,7 @@ extern "C" {
             SET_ERROR_CODE(Z3_IOB, nullptr);
             RETURN_Z3(nullptr);
         }
-        return mk_c(c)->mk_external_string(result);
+        return result;
         Z3_CATCH_RETURN(nullptr);
     }
 
@@ -208,7 +208,7 @@ extern "C" {
             buffer << to_param_descrs_ptr(p)->get_param_name(i);
         }
         buffer << ")";
-        return mk_c(c)->mk_external_string(buffer.str());
+        return mk_c(c)->mk_external_string(std::move(buffer).str());
         Z3_CATCH_RETURN("");
     }
 

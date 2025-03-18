@@ -28,6 +28,7 @@ namespace sat {
         PS_ALWAYS_FALSE,
         PS_BASIC_CACHING,
         PS_SAT_CACHING,
+        PS_LOCAL_SEARCH,
         PS_FROZEN,
         PS_RANDOM
     };
@@ -118,7 +119,6 @@ namespace sat {
         bool               m_local_search;
         local_search_mode  m_local_search_mode;
         bool               m_local_search_dbg_flips;
-        bool               m_binspr;
         bool               m_cut_simplify;
         unsigned           m_cut_delay;
         bool               m_cut_aig;
@@ -175,9 +175,10 @@ namespace sat {
 
         // drat proofs
         bool               m_drat;
+        bool               m_drat_disable;
         bool               m_drat_binary;
         symbol             m_drat_file;
-        symbol             m_smt_proof;
+        bool               m_smt_proof_check;
         bool               m_drat_check_unsat;
         bool               m_drat_check_sat;
         bool               m_drat_activity;

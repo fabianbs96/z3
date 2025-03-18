@@ -20,6 +20,7 @@ Revision History:
 #include "smt/smt_context.h"
 #include "smt/smt_lookahead.h"
 #include "ast/ast_smt2_pp.h"
+#include "ast/ast_util.h"
 #include "smt/params/smt_params_helper.hpp"
 
 namespace smt {
@@ -63,8 +64,8 @@ namespace smt {
         return m_imp->m_kernel.get_manager();
     }
 
-    void  kernel::copy(kernel& src, kernel& dst) {
-        context::copy(src.m_imp->m_kernel, dst.m_imp->m_kernel);
+    void  kernel::copy(kernel& src, kernel& dst, bool override_base) {
+        context::copy(src.m_imp->m_kernel, dst.m_imp->m_kernel, override_base);
     }
 
     bool kernel::set_logic(symbol logic) {
@@ -213,6 +214,45 @@ namespace smt {
         return out;
     }
 
+    void kernel::solve_for(vector<solver::solution>& sol) {
+        vector<smt::solution> solution;
+        for (auto const& [v, t, g] : sol)
+            solution.push_back({ v, t, g });
+        m_imp->m_kernel.solve_for(solution);
+        sol.reset();
+        for (auto s : solution)
+            sol.push_back({ s.var, s.term, s.guard });       
+    }
+
+    expr* kernel::congruence_root(expr * e) {
+        smt::enode* n = m_imp->m_kernel.find_enode(e);        
+        if (!n)
+            return e;
+        return n->get_root()->get_expr();
+    }
+
+    expr* kernel::congruence_next(expr * e) {
+        smt::enode* n = m_imp->m_kernel.find_enode(e);
+        if (!n)
+            return e;
+        return n->get_next()->get_expr();
+    }
+
+    expr_ref kernel::congruence_explain(expr* a, expr* b) {
+        auto& ctx = m_imp->m_kernel;
+        ast_manager& m = ctx.get_manager();
+        smt::enode* n1 = ctx.find_enode(a);
+        smt::enode* n2 = ctx.find_enode(b);
+        if (!n1 || !n2 || n1->get_root() != n2->get_root())
+            return expr_ref(m.mk_eq(a, b), m);
+        literal_vector lits;
+        ctx.get_cr().eq2literals(n1, n2, lits);
+        expr_ref_vector es(m);
+        for (auto lit : lits)
+            es.push_back(ctx.literal2expr(lit));        
+        return mk_and(es);
+    }
+
     void kernel::collect_statistics(::statistics & st) const {
         m_imp->m_kernel.collect_statistics(st);
     }
@@ -260,6 +300,10 @@ namespace smt {
         m_imp->m_kernel.user_propagate_init(ctx, push_eh, pop_eh, fresh_eh);
     }
 
+    void kernel::register_on_clause(void* ctx, user_propagator::on_clause_eh_t& on_clause) {
+        m_imp->m_kernel.register_on_clause(ctx, on_clause);
+    }
+
     void kernel::user_propagate_register_fixed(user_propagator::fixed_eh_t& fixed_eh) {
         m_imp->m_kernel.user_propagate_register_fixed(fixed_eh);
     }
@@ -286,6 +330,10 @@ namespace smt {
 
     void kernel::user_propagate_register_decide(user_propagator::decide_eh_t& r) {
         m_imp->m_kernel.user_propagate_register_decide(r);
+    }
+    
+    void kernel::user_propagate_initialize_value(expr* var, expr* value) {
+        m_imp->m_kernel.user_propagate_initialize_value(var, value);
     }
 
 };

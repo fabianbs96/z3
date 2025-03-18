@@ -20,12 +20,12 @@ public:
     justified_expr& operator=(justified_expr const& other) {
         SASSERT(&m == &other.m);
         if (this != &other) {
-            m.inc_ref(other.get_fml());
-            m.inc_ref(other.get_proof());
+            m.inc_ref(other.fml());
+            m.inc_ref(other.pr());
             m.dec_ref(m_fml);
             m.dec_ref(m_proof);
-            m_fml = other.get_fml();
-            m_proof = other.get_proof();
+            m_fml = other.fml();
+            m_proof = other.pr();
         }
         return *this;
     }
@@ -33,8 +33,7 @@ public:
     justified_expr(justified_expr const& other):
         m(other.m),
         m_fml(other.m_fml),
-        m_proof(other.m_proof)
-    {
+        m_proof(other.m_proof) {
         m.inc_ref(m_fml);
         m.inc_ref(m_proof);
     }
@@ -42,8 +41,7 @@ public:
     justified_expr(justified_expr && other) noexcept :
         m(other.m),
         m_fml(nullptr),
-        m_proof(nullptr)
-    {
+        m_proof(nullptr) {
         std::swap(m_fml, other.m_fml);
         std::swap(m_proof, other.m_proof);
     }
@@ -51,10 +49,11 @@ public:
     ~justified_expr() {
         m.dec_ref(m_fml);
         m.dec_ref(m_proof);
-		m_fml = nullptr;
-		m_proof = nullptr;
+        m_fml = nullptr;
+        m_proof = nullptr;
     }
     
-    expr* get_fml() const { return m_fml; }
-    proof* get_proof() const { return m_proof; }        
+    expr* fml() const { return m_fml; }
+
+    proof* pr() const { return m_proof; }        
 };

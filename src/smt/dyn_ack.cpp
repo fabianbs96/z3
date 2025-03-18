@@ -294,7 +294,6 @@ namespace smt {
 
     void dyn_ack_manager::gc() {
         TRACE("dyn_ack", tout << "dyn_ack GC\n";);
-        unsigned num_deleted = 0;
         m_to_instantiate.reset();
         m_qhead = 0;
         svector<app_pair>::iterator it  = m_app_pairs.begin();
@@ -318,7 +317,6 @@ namespace smt {
             // SASSERT(num_occs > 0);
             num_occs = static_cast<unsigned>(num_occs * m_params.m_dack_gc_inv_decay);
             if (num_occs <= 1) {
-                num_deleted++;
                 TRACE("dyn_ack", tout << "2) erasing:\n" << mk_pp(p.first, m) << "\n" << mk_pp(p.second, m) << "\n";);
                 m_app_pair2num_occs.erase(p.first, p.second);
                 m.dec_ref(p.first);
@@ -337,7 +335,6 @@ namespace smt {
         // app_pair_lt is not a total order on pairs of expressions.
         // So, we should use stable_sort to avoid different behavior in different platforms.
         std::stable_sort(m_to_instantiate.begin(), m_to_instantiate.end(), f);
-        // IF_VERBOSE(10, if (num_deleted > 0) verbose_stream() << "dynamic ackermann GC: " << num_deleted << "\n";);
     }
 
     class dyn_ack_clause_del_eh : public clause_del_eh {
@@ -428,6 +425,9 @@ namespace smt {
         lits.push_back(mk_eq(n1, n2));
         clause_del_eh * del_eh = alloc(dyn_ack_clause_del_eh, *this);
 
+        for (auto lit : lits) 
+            m_context.mark_as_relevant(lit);        
+
         justification * js = nullptr;
         if (m.proofs_enabled())
             js = alloc(dyn_ack_cc_justification, n1, n2);
@@ -487,7 +487,10 @@ namespace smt {
                        m.mk_eq(n2, r),
                        m.mk_eq(n1, n2));
         }
-        clause * cls = ctx.mk_clause(lits.size(), lits.data(), js, CLS_TH_LEMMA, del_eh);
+        ctx.mark_as_relevant(eq1);
+        ctx.mark_as_relevant(eq2);
+        ctx.mark_as_relevant(eq3);
+        clause* cls = ctx.mk_clause(lits.size(), lits.data(), js, CLS_TH_LEMMA, del_eh);
         if (!cls) {
             dealloc(del_eh);
             return;
@@ -519,7 +522,6 @@ namespace smt {
 
     void dyn_ack_manager::gc_triples() {
         TRACE("dyn_ack", tout << "dyn_ack GC\n";);
-        unsigned num_deleted = 0;
         m_triple.m_to_instantiate.reset();
         m_triple.m_qhead = 0;
         svector<app_triple>::iterator it  = m_triple.m_apps.begin();
@@ -544,7 +546,6 @@ namespace smt {
             // SASSERT(num_occs > 0);
             num_occs = static_cast<unsigned>(num_occs * m_params.m_dack_gc_inv_decay);
             if (num_occs <= 1) {
-                num_deleted++;
                 TRACE("dyn_ack", tout << "2) erasing:\n" << mk_pp(p.first, m) << "\n" << mk_pp(p.second, m) << "\n";);
                 m_triple.m_app2num_occs.erase(p.first, p.second, p.third);
                 m.dec_ref(p.first);
@@ -563,7 +564,6 @@ namespace smt {
         app_triple_lt f(m_triple.m_app2num_occs);
         // app_triple_lt is not a total order
         std::stable_sort(m_triple.m_to_instantiate.begin(), m_triple.m_to_instantiate.end(), f);
-        // IF_VERBOSE(10, if (num_deleted > 0) verbose_stream() << "dynamic ackermann GC: " << num_deleted << "\n";);
     }
 
 

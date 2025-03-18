@@ -303,7 +303,7 @@ public:
 
     void collect_param_descrs(param_descrs & r) override {
         r.insert("split_factors", CPK_BOOL,
-                 "(default: true) apply simplifications such as (= (* p1 p2) 0) --> (or (= p1 0) (= p2 0)).");
+                 "apply simplifications such as (= (* p1 p2) 0) --> (or (= p1 0) (= p2 0)).", "true");
         polynomial::factor_params::get_param_descrs(r);
     }
 
@@ -316,7 +316,7 @@ public:
             throw ex;
         }
         catch (z3_exception & ex) {
-            throw tactic_exception(ex.msg());
+            throw tactic_exception(ex.what());
         }
     }
 

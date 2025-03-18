@@ -82,6 +82,8 @@ struct theory_arith_params {
     bool                    m_arith_adaptive_gcd = false;
     unsigned                m_arith_propagation_threshold = UINT_MAX;
 
+    bool                    m_arith_validate = false;
+    bool                    m_arith_dump_lemmas = false;
     arith_pivot_strategy    m_arith_pivot_strategy = arith_pivot_strategy::ARITH_PIVOT_SMALLEST;
 
     // used in diff-logic
@@ -105,7 +107,9 @@ struct theory_arith_params {
     unsigned                m_nl_arith_max_degree = 6;
     bool                    m_nl_arith_branching = true;
     unsigned                m_nl_arith_rounds = 1024;
-
+    bool                    m_nl_arith_propagate_linear_monomials = true;
+    bool                    m_nl_arith_optimize_bounds = true;
+    bool                    m_nl_arith_cross_nested = true;
 
     theory_arith_params(params_ref const & p = params_ref()) {
         updt_params(p);

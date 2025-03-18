@@ -32,7 +32,7 @@ Revision History:
    where T[X] does not contain f.
 
    This class is responsible for storing macros and expanding them.
-   It has support for backtracking and tagging declarations in an expression as forbidded for being macros.
+   It has support for backtracking and tagging declarations in an expression as forbidden for being macros.
 */
 class macro_manager {
     ast_manager &                    m;
@@ -64,7 +64,6 @@ class macro_manager {
 
 public:
     macro_manager(ast_manager & m);
-    ~macro_manager();
     void copy_to(macro_manager& dst);
     ast_manager & get_manager() const { return m; }
     macro_util & get_util() { return m_util; }
@@ -73,9 +72,7 @@ public:
     void push_scope();
     void pop_scope(unsigned num_scopes);
     void reset();
-    void mark_forbidden(unsigned n, expr * const * exprs);
     void mark_forbidden(unsigned n, justified_expr const * exprs);
-    void mark_forbidden(expr * e) { mark_forbidden(1, &e); }
     bool is_forbidden(func_decl * d) const { return m_forbidden_set.contains(d); }
     obj_hashtable<func_decl> const & get_forbidden_set() const { return m_forbidden_set; }
     void display(std::ostream & out);

@@ -43,9 +43,6 @@ namespace smt {
         m_vals.resize(15, 0.0f);
     }
 
-    qi_queue::~qi_queue() {
-    }
-
     void qi_queue::setup() {
         TRACE("qi_cost", tout << "qi_cost: " << m_params.m_qi_cost << "\n";);
         if (!m_parser.parse_string(m_params.m_qi_cost.c_str(), m_cost_function)) {
@@ -131,6 +128,8 @@ namespace smt {
         // max_top_generation and min_top_generation are not available for computing inc_gen
         set_values(q, nullptr, generation, 0, 0, cost);
         float r = m_evaluator(m_new_gen_function, m_vals.size(), m_vals.data());
+        if (q->get_weight() > 0 || r > 0)
+            return static_cast<unsigned>(r);
         return std::max(generation + 1, static_cast<unsigned>(r));
     }
 
@@ -152,6 +151,11 @@ namespace smt {
         unsigned since_last_check = 0;
         for (entry & curr : m_new_entries) {
             if (m_context.get_cancel_flag()) {
+                break;
+            }
+            if (m_stats.m_num_instances > m_params.m_qi_max_instances) {
+                m_context.set_reason_unknown("maximum number of quantifier instances was reached");
+                m_context.set_internal_completed();
                 break;
             }
             fingerprint * f    = curr.m_qb;
@@ -184,8 +188,7 @@ namespace smt {
 
     void qi_queue::display_instance_profile(fingerprint * f, quantifier * q, unsigned num_bindings, enode * const * bindings, unsigned proof_id, unsigned generation) {
         if (m.has_trace_stream()) {
-            m.trace_stream() << "[instance] ";
-            m.trace_stream() << static_cast<void*>(f);
+            m.trace_stream() << "[instance] " << f->get_data_hash();
             if (m.proofs_enabled())
                 m.trace_stream() << " #" << proof_id;
             m.trace_stream() << " ; " << generation;
@@ -304,6 +307,20 @@ namespace smt {
             }
             m_instances.push_back(pr1);
         }
+        else if (m_context.clause_proof_active()) {
+            expr_ref_vector bindings_e(m), args(m);
+            arith_util a(m);
+            expr_ref gen(a.mk_int(generation), m);
+            expr* gens[1] = { gen.get() };
+            for (unsigned i = 0; i < num_bindings; ++i) 
+                bindings_e.push_back(bindings[i]->get_expr());
+            args.push_back(q);
+            args.push_back(mk_not(m, instance));
+            args.push_back(m.mk_app(symbol("bind"), num_bindings, bindings_e.data(), m.mk_proof_sort()));
+            args.push_back(m.mk_app(symbol("gen"), 1, gens, m.mk_proof_sort()));
+            pr1 = m.mk_app(symbol("inst"), args.size(), args.data(), m.mk_proof_sort());
+            m_instances.push_back(pr1);            
+        }
         TRACE("qi_queue", tout << mk_pp(lemma, m) << "\n#" << lemma->get_id() << ":=\n" << mk_ll_pp(lemma, m););
         m_stats.m_num_instances++;
         unsigned gen = get_new_gen(q, generation, ent.m_cost);
@@ -382,6 +399,7 @@ namespace smt {
     bool qi_queue::final_check_eh() {
         TRACE("qi_queue", display_delayed_instances_stats(tout); tout << "lazy threshold: " << m_params.m_qi_lazy_threshold
               << ", scope_level: " << m_context.get_scope_level() << "\n";);
+
         if (m_params.m_qi_conservative_final_check) {
             bool  init = false;
             float min_cost = 0.0;

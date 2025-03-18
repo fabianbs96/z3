@@ -48,7 +48,7 @@ Revision History:
 // clear to the compiler what instructions should be used. E.g., for sqrt(), the Windows compiler selects
 // the x87 FPU, even when /arch:SSE2 is on.
 // Luckily, these are kind of standardized, at least for Windows/Linux/macOS.
-#if defined(__clang__) || defined(_M_ARM) && defined(_M_ARM64)
+#if (defined(__clang__) && !defined(__MINGW32__)) || defined(_M_ARM) && defined(_M_ARM64)
 #undef USE_INTRINSICS
 #endif
 
@@ -87,10 +87,6 @@ hwf_manager::hwf_manager() :
     // I have yet to discover whether Linux and macOS save the FPU state when switching context.
     // As long as we stick to using the SSE2 FPU though, there shouldn't be any problems with respect
     // to the precision (not sure about the rounding modes though).
-}
-
-hwf_manager::~hwf_manager()
-{
 }
 
 uint64_t RAW(double X) { uint64_t tmp; memcpy(&tmp, &(X), sizeof(uint64_t)); return tmp; }

@@ -114,18 +114,10 @@ void pob::inherit(pob const &p) {
     m_desired_level = std::max(m_desired_level, p.m_desired_level);
     m_open = p.m_open;
     m_use_farkas = p.m_use_farkas;
-
-    m_is_conjecture = p.m_is_conjecture;
-    m_enable_local_gen = p.m_enable_local_gen;
-    m_enable_concretize = p.m_enable_concretize;
-    m_is_subsume = p.m_is_subsume;
-    m_enable_expand_bnd_gen = p.m_enable_expand_bnd_gen;
-
     m_weakness = p.m_weakness;
 
     m_derivation = nullptr;
 
-    m_gas = p.m_gas;
 }
 
 void pob::close () {
@@ -3496,7 +3488,7 @@ lbool context::handle_unknown(pob &n, const datalog::rule *r, model &model) {
     }
     // model \models reach_fact && Tr && pob
     if (model.is_true(n.pt().get_transition(*r)) && model.is_true(n.post()) &&
-        n.pt().mk_mdl_rf_consistent(r, model)) {
+        r->get_uninterpreted_tail_size() == 0 && n.pt().mk_mdl_rf_consistent(r, model)) {
         return l_true;
     }
     return l_undef;

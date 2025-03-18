@@ -9,7 +9,7 @@ set(VER_TWEAK "${Z3_VERSION_TWEAK}")
 # Generate Native.cs
 set(Z3_DOTNET_NATIVE_FILE "${CMAKE_CURRENT_BINARY_DIR}/Native.cs")
 add_custom_command(OUTPUT "${Z3_DOTNET_NATIVE_FILE}"
-  COMMAND "${PYTHON_EXECUTABLE}"
+  COMMAND "${Python3_EXECUTABLE}"
     "${PROJECT_SOURCE_DIR}/scripts/update_api.py"
     ${Z3_FULL_PATH_API_HEADER_FILES_TO_SCAN}
     "--dotnet-output-dir"
@@ -25,7 +25,7 @@ add_custom_command(OUTPUT "${Z3_DOTNET_NATIVE_FILE}"
 # Generate Enumerations.cs
 set(Z3_DOTNET_CONST_FILE "${CMAKE_CURRENT_BINARY_DIR}/Enumerations.cs")
 add_custom_command(OUTPUT "${Z3_DOTNET_CONST_FILE}"
-  COMMAND "${PYTHON_EXECUTABLE}"
+  COMMAND "${Python3_EXECUTABLE}"
     "${PROJECT_SOURCE_DIR}/scripts/mk_consts_files.py"
     ${Z3_FULL_PATH_API_HEADER_FILES_TO_SCAN}
     "--dotnet-output-dir"
@@ -59,7 +59,6 @@ set(Z3_DOTNET_ASSEMBLY_SOURCES_IN_SRC_TREE
     Context.cs
     DatatypeExpr.cs
     DatatypeSort.cs
-    Deprecated.cs
     EnumSort.cs
     Expr.cs
     FiniteDomainExpr.cs
@@ -76,7 +75,6 @@ set(Z3_DOTNET_ASSEMBLY_SOURCES_IN_SRC_TREE
     FuncInterp.cs
     Global.cs
     Goal.cs
-    IDecRefQueue.cs
     IntExpr.cs
     IntNum.cs
     IntSort.cs
@@ -89,6 +87,7 @@ set(Z3_DOTNET_ASSEMBLY_SOURCES_IN_SRC_TREE
     NativeFuncInterp.cs
     NativeModel.cs
     NativeSolver.cs
+    OnClause.cs
     Optimize.cs
     ParamDescrs.cs
     Params.cs
@@ -104,6 +103,7 @@ set(Z3_DOTNET_ASSEMBLY_SOURCES_IN_SRC_TREE
     SeqExpr.cs
     SeqSort.cs
     SetSort.cs
+    Simplifiers.cs
     Solver.cs
     Sort.cs
     Statistics.cs

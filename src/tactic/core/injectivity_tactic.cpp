@@ -5,18 +5,10 @@ Module Name:
 
   injectivity_tactic.cpp
 
-Abstract:
-
-  Injectivity tactics
-  - Discover axioms of the form `forall x. (= (g (f x)) x`
-    Mark `f` as injective
-  - Rewrite (sub)terms of the form `(= (f x) (f y))` to `(= x y)` whenever `f` is injective.
 
 Author:
 
   Nicolas Braud-Santoni (t-nibrau) 2017-08-10
-
-Notes:
 
 --*/
 #include <algorithm>
@@ -164,26 +156,20 @@ class injectivity_tactic : public tactic {
     struct rewriter_eq_cfg : public default_rewriter_cfg {
         ast_manager              & m_manager;
         InjHelper                & inj_map;
-//        expr_ref_vector            m_out;
-//        sort_ref_vector            m_bindings;
 
         ast_manager & m() const { return m_manager; }
 
         rewriter_eq_cfg(ast_manager & m, InjHelper & map, params_ref const & p) : m_manager(m), inj_map(map) {
         }
 
-        ~rewriter_eq_cfg() {
-        }
-
         void cleanup_buffers() {
-//            m_out.finalize();
         }
 
         void reset() {
         }
 
         br_status reduce_app(func_decl * f, unsigned num, expr * const * args, expr_ref & result, proof_ref & result_pr) {
-            if(num != 2)
+            if (num != 2)
                 return BR_FAILED;
 
             if (!m().is_eq(f))
@@ -230,8 +216,6 @@ class injectivity_tactic : public tactic {
     finder *           m_finder;
     rewriter_eq *      m_eq;
     InjHelper *        m_map;
-//    rewriter_inverse * m_inverse;
-
     params_ref         m_params;
     ast_manager &      m_manager;
 

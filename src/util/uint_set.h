@@ -28,7 +28,7 @@ public:
     
     typedef unsigned data;
 
-    void swap(uint_set & other) {
+    void swap(uint_set & other) noexcept {
         unsigned_vector::swap(other);
     }
 
@@ -194,7 +194,6 @@ public:
             SASSERT(invariant());
         }
         unsigned operator*() const { return m_index; }
-        bool operator==(iterator const& it) const { return m_index == it.m_index; }
         bool operator!=(iterator const& it) const { return m_index != it.m_index; }
         iterator & operator++() { ++m_index; scan(); return *this; }
         iterator operator++(int) { iterator tmp = *this; ++*this; return tmp; }
@@ -318,7 +317,7 @@ public:
         m_size(0)
     {}
 
-    void insert(unsigned x) {
+    void insert_fresh(unsigned x) {
         SASSERT(!contains(x));
         m_index.reserve(x + 1, UINT_MAX);
         m_elems.reserve(m_size + 1);
@@ -326,6 +325,11 @@ public:
         m_elems[m_size] = x;
         m_size++;
         SASSERT(contains(x));
+    }
+
+    void insert(unsigned x) {
+        if (!contains(x))
+            insert_fresh(x);
     }
     
     void remove(unsigned x) {
@@ -345,6 +349,19 @@ public:
         SASSERT(index < m_size);
         return m_elems[index];
     }
+    unsigned operator[](unsigned index) const {
+        SASSERT(index < m_size);
+        return m_elems[index];
+    }
+
+    void swap_elems(unsigned i, unsigned j) {
+        if (i == j)
+            return;
+        SASSERT(i < m_size && j < m_size);
+        unsigned x = m_elems[i], y = m_elems[j];
+        m_elems[i] = y; m_elems[j] = x;
+        m_index[x] = j; m_index[y] = i;
+    }
 
     bool contains(unsigned x) const { return x < m_index.size() && m_index[x] < m_size && m_elems[m_index[x]] == x; }
     void reset() { m_size = 0; }
@@ -358,6 +375,11 @@ public:
 };
 
 inline std::ostream& operator<<(std::ostream& out, indexed_uint_set const& s) {
+    for (unsigned i : s) out << i << " ";
+    return out;
+}
+
+inline std::ostream& operator<<(std::ostream& out, tracked_uint_set const& s) {
     for (unsigned i : s) out << i << " ";
     return out;
 }

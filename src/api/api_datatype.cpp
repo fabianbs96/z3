@@ -102,6 +102,13 @@ extern "C" {
         sort* e;
 
         ptr_vector<constructor_decl> constrs;
+        symbol sname = to_symbol(name);
+
+        if (mk_c(c)->get_dt_plugin()->is_declared(sname)) {
+            SET_ERROR_CODE(Z3_INVALID_ARG, "enumeration sort name is already declared");
+            RETURN_Z3(nullptr);
+        }
+
         for (unsigned i = 0; i < n; ++i) {
             symbol e_name(to_symbol(enum_names[i]));
             std::string recognizer_s("is_");
@@ -112,8 +119,9 @@ extern "C" {
         }
 
 
+
         {
-            datatype_decl * dt = mk_datatype_decl(dt_util, to_symbol(name), 0, nullptr, n, constrs.data());
+            datatype_decl * dt = mk_datatype_decl(dt_util, sname, 0, nullptr, n, constrs.data());
             bool is_ok = mk_c(c)->get_dt_plugin()->mk_datatypes(1, &dt, 0, nullptr, sorts);
             del_datatype_decl(dt);
 
@@ -231,6 +239,20 @@ extern "C" {
         }
         RETURN_Z3(reinterpret_cast<Z3_constructor>(cnstr));
         Z3_CATCH_RETURN(nullptr);
+    }
+
+    unsigned Z3_API Z3_constructor_num_fields(Z3_context c, Z3_constructor constr) {
+        Z3_TRY;
+        LOG_Z3_constructor_num_fields(c, constr);
+        RESET_ERROR_CODE();
+        mk_c(c)->reset_last_result();
+        if (!constr) {
+            SET_ERROR_CODE(Z3_INVALID_ARG, nullptr);
+            return 0;
+        }
+        constructor* c = reinterpret_cast<constructor*>(constr);
+        return c->m_field_names.size();
+        Z3_CATCH_RETURN(0);
     }
 
 
@@ -582,7 +604,7 @@ extern "C" {
         Z3_CATCH_RETURN(nullptr);
     }
 
-    Z3_ast Z3_datatype_update_field(
+    Z3_ast Z3_API Z3_datatype_update_field(
         Z3_context c,  Z3_func_decl f, Z3_ast t, Z3_ast v) {
         Z3_TRY;
         LOG_Z3_datatype_update_field(c, f, t, v);

@@ -509,10 +509,10 @@ namespace smt {
     // Assuming `app` is equal to a constructor term, return the constructor enode
     inline enode * theory_datatype::oc_get_cstor(enode * app) {
         theory_var v = app->get_root()->get_th_var(get_id());
-        SASSERT(v != null_theory_var);
+        if (v == null_theory_var)
+            return nullptr;
         v = m_find.find(v);
         var_data * d = m_var_data[v];
-        SASSERT(d->m_constructor);
         return d->m_constructor;
     }
 
@@ -762,8 +762,7 @@ namespace smt {
         m_util(m),
         m_autil(m),
         m_sutil(m),
-        m_find(*this),
-        m_trail_stack() {
+        m_find(*this) {
     }
 
     theory_datatype::~theory_datatype() {
@@ -802,8 +801,9 @@ namespace smt {
             return false;
         func_decl* con = m_util.get_accessor_constructor(f);
         for (enode* app : ctx.enodes_of(f)) {
-            enode* arg = app->get_arg(0)->get_root();
-            if (is_constructor(arg) && arg->get_decl() != con) 
+            enode* arg = app->get_arg(0);
+            enode* arg_con = oc_get_cstor(arg);
+            if (arg_con && is_constructor(arg_con) && arg_con->get_decl() != con) 
                 return true;
         }
         return false; 
@@ -914,7 +914,7 @@ namespace smt {
             }
             SASSERT(val == l_undef || (val == l_false && d->m_constructor == nullptr));
             d->m_recognizers[c_idx] = recognizer;
-            m_trail_stack.push(set_vector_idx_trail<enode>(d->m_recognizers, c_idx));
+            m_trail_stack.push(set_vector_idx_trail(d->m_recognizers, c_idx));
             if (val == l_false) {
                 propagate_recognizer(v, recognizer);
             }

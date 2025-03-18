@@ -20,11 +20,13 @@ Notes:
 #include "params/bool_rewriter_params.hpp"
 #include "ast/rewriter/rewriter_def.h"
 #include "ast/ast_lt.h"
+#include "ast/for_each_expr.h"
 #include <algorithm>
 
 void bool_rewriter::updt_params(params_ref const & _p) {
     bool_rewriter_params p(_p);
-    m_flat                 = p.flat();
+    m_flat_and_or          = p.flat_and_or();
+    m_sort_disjunctions    = p.sort_disjunctions();
     m_elim_and             = p.elim_and();
     m_elim_ite             = p.elim_ite();
     m_local_ctx            = p.local_ctx();
@@ -175,13 +177,13 @@ br_status bool_rewriter::mk_flat_and_core(unsigned num_args, expr * const * args
         }
         if (mk_nflat_and_core(flat_args.size(), flat_args.data(), result) == BR_FAILED)
             result = m().mk_and(flat_args);
-        return BR_DONE;
+        return BR_REWRITE1;
     }
     return mk_nflat_and_core(num_args, args, result);
 }
 
 br_status bool_rewriter::mk_nflat_or_core(unsigned num_args, expr * const * args, expr_ref & result) {
-    bool s = false;
+    bool s = false; // whether we have canceled some disjuncts or found some out or order
     ptr_buffer<expr> buffer;
     expr_fast_mark1 neg_lits;
     expr_fast_mark2 pos_lits;
@@ -244,13 +246,34 @@ br_status bool_rewriter::mk_nflat_or_core(unsigned num_args, expr * const * args
         result = buffer.back();
         return BR_DONE;
     default:
+#if 0
+        // stupid or removal. A very special case of circuit optimization.
+        expr* x, * y, * z, * u;
+        auto is_complement = [&](expr* a, expr* b) {
+            expr* c;
+            if (m().is_not(a, c) && c == b)
+                return true;
+            if (m().is_not(b, c) && c == a)
+                return true;
+            return false;
+        };
+
+        if (sz == 2 && m().is_and(buffer[0], x, y) && m().is_and(buffer[1], z, u) && x == z && is_complement(y, u)) {
+            result = x;
+            return BR_DONE;
+        }
+#endif
+
         if (m_local_ctx && m_local_ctx_cost <= m_local_ctx_limit) {
             if (local_ctx_simp(sz, buffer.data(), result)) 
                 return BR_DONE;
         }
+
         if (s) {
-            ast_lt lt;
-            std::sort(buffer.begin(), buffer.end(), lt);       
+            if (m_sort_disjunctions) {
+                ast_lt lt;
+                std::stable_sort(buffer.begin(), buffer.end(), lt);
+            }
             result = m().mk_or(sz, buffer.data());
             return BR_DONE;
         }
@@ -286,11 +309,11 @@ br_status bool_rewriter::mk_flat_or_core(unsigned num_args, expr * const * args,
             }
         }
         if (mk_nflat_or_core(flat_args.size(), flat_args.data(), result) == BR_FAILED) {
-            if (!ordered) {
+            if (m_sort_disjunctions && !ordered) {
                 ast_lt lt;
-                std::sort(flat_args.begin(), flat_args.end(), lt);
+                std::stable_sort(flat_args.begin(), flat_args.end(), lt);
             }
-            result = m().mk_or(flat_args);
+            result = mk_or_app(flat_args.size(), flat_args.data());
         }
         return BR_DONE;
     }
@@ -522,16 +545,9 @@ bool bool_rewriter::local_ctx_simp(unsigned num_args, expr * const * args, expr_
     bool simp     = false;
     bool modified = false;
     bool forward  = true;
-    unsigned rounds = 0;
     expr* narg;
 
     while (true) {
-        rounds++;
-#if 0
-        if (rounds > 10)
-            verbose_stream() << "rounds: " << rounds << "\n";
-#endif
-
 
 #define PROCESS_ARG()                                                                           \
         {                                                                                       \
@@ -555,10 +571,8 @@ bool bool_rewriter::local_ctx_simp(unsigned num_args, expr * const * args, expr_
                 result = arg;                                                                   \
                 return true;                                                                    \
             }                                                                                   \
-            if (m_flat && m().is_or(arg)) {                                                     \
-                unsigned sz = to_app(arg)->get_num_args();                                      \
-                for (unsigned j = 0; j < sz; j++) {                                             \
-                    expr * arg_arg = to_app(arg)->get_arg(j);                                   \
+            if (m_flat_and_or && m().is_or(arg)) {                                              \
+                for (expr * arg_arg : *to_app(arg)) {                                           \
                     push_new_arg(arg_arg, new_args, neg_lits, pos_lits);                        \
                 }                                                                               \
             }                                                                                   \
@@ -621,11 +635,20 @@ br_status bool_rewriter::try_ite_value(app * ite, app * val, expr_ref & result) 
     SASSERT(m().is_value(val));
 
     if (m().are_distinct(val, e)) {
-        result = m().mk_and(mk_eq(t, val), cond);
+        if (get_depth(t) < 500)
+            mk_eq(t, val, result);
+        else
+            result = m().mk_eq(t, val);
+        
+        result = m().mk_and(result, cond);
         return BR_REWRITE2;
     }
     if (m().are_distinct(val, t)) {
-        result = m().mk_and(mk_eq(e, val), m().mk_not(cond));
+        if (get_depth(e) < 500)
+            mk_eq(e, val, result);
+        else
+            result = m().mk_eq(e, val);
+        result = m().mk_and(result, m().mk_not(cond));
         return BR_REWRITE2;
     }
     if (m().are_equal(val, t)) {
@@ -634,24 +657,26 @@ br_status bool_rewriter::try_ite_value(app * ite, app * val, expr_ref & result) 
             return BR_DONE;
         }
         else {
-            result = m().mk_or(mk_eq(e, val), cond);
+            mk_eq(e, val, result);
+            result = m().mk_or(result, cond);
         }
         return BR_REWRITE2;
     }
     if (m().are_equal(val, e)) {
-        result = m().mk_or(mk_eq(t, val), m().mk_not(cond));
+        mk_eq(t, val, result);
+        result = m().mk_or(result, m().mk_not(cond));
         return BR_REWRITE2;
     }
 
     expr* cond2 = nullptr, *t2 = nullptr, *e2 = nullptr;
     if (m().is_ite(t, cond2, t2, e2) && m().is_value(t2) && m().is_value(e2) &&
         BR_FAILED != try_ite_value(to_app(t), val, result)) {
-        result = m().mk_ite(cond, result, mk_eq(e, val));
+        result = m().mk_ite(cond, result, mk_eq_plain(e, val));
         return BR_REWRITE2;
     }
     if (m().is_ite(e, cond2, t2, e2) && m().is_value(t2) && m().is_value(e2) && 
         BR_FAILED != try_ite_value(to_app(e), val, result)) {
-        result = m().mk_ite(cond, mk_eq(t, val), result);
+        result = m().mk_ite(cond, mk_eq_plain(t, val), result);
         return BR_REWRITE2;
     }
 
@@ -659,11 +684,29 @@ br_status bool_rewriter::try_ite_value(app * ite, app * val, expr_ref & result) 
 }
 
 
-app* bool_rewriter::mk_eq(expr* lhs, expr* rhs) {
-    // degrades simplification 
-    // if (lhs->get_id() > rhs->get_id()) std::swap(lhs, rhs);
+app* bool_rewriter::mk_eq_plain(expr* lhs, expr* rhs) {
+    if (m().are_equal(lhs, rhs))
+        return m().mk_true();
+    if (m().are_distinct(lhs, rhs))
+        return m().mk_false();
     return m().mk_eq(lhs, rhs);
 }
+
+bool bool_rewriter::try_ite_eq(expr* lhs, expr* rhs, expr_ref& r) {
+    expr* c, *t, *e;
+    if (!m().is_ite(lhs, c, t, e))
+        return false;
+    if (m().are_equal(t, rhs) && m().are_distinct(e, rhs)) {
+        r = c;
+        return true;
+    }
+    if (m().are_equal(e, rhs) && m().are_distinct(t, rhs)) {
+        r = m().mk_not(c);
+        return true;
+    }
+    return false;
+}
+
 
 br_status bool_rewriter::mk_eq_core(expr * lhs, expr * rhs, expr_ref & result) {
     if (m().are_equal(lhs, rhs)) {
@@ -679,7 +722,15 @@ br_status bool_rewriter::mk_eq_core(expr * lhs, expr * rhs, expr_ref & result) {
     br_status r = BR_FAILED;
     
 
+    if (try_ite_eq(lhs, rhs, result))
+        return BR_REWRITE1;
+
+    if (try_ite_eq(rhs, lhs, result))
+        return BR_REWRITE1;
+    
     if (m_ite_extra_rules) {
+        expr* c1, * t1, * e1;
+        expr* c2, * t2, * e2;
         if (m().is_ite(lhs) && m().is_value(rhs)) {
             r = try_ite_value(to_app(lhs), to_app(rhs), result);
             CTRACE("try_ite_value", r != BR_FAILED,
@@ -689,6 +740,16 @@ br_status bool_rewriter::mk_eq_core(expr * lhs, expr * rhs, expr_ref & result) {
             r = try_ite_value(to_app(rhs), to_app(lhs), result);
             CTRACE("try_ite_value", r != BR_FAILED,
                    tout << mk_bounded_pp(lhs, m()) << "\n" << mk_bounded_pp(rhs, m()) << "\n--->\n" << mk_bounded_pp(result, m()) << "\n";);
+        }
+        else if (m().is_ite(lhs, c1, t1, e1) && m().is_ite(rhs, c2, t2, e2) &&
+            m().is_value(t1) && m().is_value(e1) && m().is_value(t2) && m().is_value(e2)) {
+            expr_ref_vector args(m());
+            args.push_back(m().mk_or(c1, c2, m().mk_eq(e1, e2)));
+            args.push_back(m().mk_or(m().mk_not(c1), m().mk_not(c2), m().mk_eq(t1, t2)));
+            args.push_back(m().mk_or(m().mk_not(c1), c2, m().mk_eq(t1, e2)));
+            args.push_back(m().mk_or(c1, m().mk_not(c2), m().mk_eq(e1, t2)));
+            result = m().mk_and(args);
+            return BR_REWRITE_FULL;
         }
         if (r != BR_FAILED)
             return r;
@@ -731,7 +792,7 @@ br_status bool_rewriter::mk_eq_core(expr * lhs, expr * rhs, expr_ref & result) {
         }
 	    
         if (unfolded) {
-            result = mk_eq(lhs, rhs);
+            result = m().mk_eq(lhs, rhs);
             return BR_REWRITE1;
         }
 
@@ -748,6 +809,10 @@ br_status bool_rewriter::mk_eq_core(expr * lhs, expr * rhs, expr_ref & result) {
             }
         }
     }
+    if (m_order_eq && lhs->get_id() > rhs->get_id()) {
+        result = m().mk_eq(rhs, lhs);
+        return BR_DONE;
+    }
     return BR_FAILED;
 }
 
@@ -759,7 +824,8 @@ br_status bool_rewriter::mk_distinct_core(unsigned num_args, expr * const * args
 
     if (num_args == 2) {
         expr_ref tmp(m());
-        result = m().mk_not(mk_eq(args[0], args[1]));
+        mk_eq(args[0], args[1], tmp);
+        mk_not(tmp, result);
         return BR_REWRITE2; // mk_eq may be dispatched to other rewriters.
     }
 
@@ -798,10 +864,10 @@ br_status bool_rewriter::mk_distinct_core(unsigned num_args, expr * const * args
     }
 
     if (m_blast_distinct && num_args < m_blast_distinct_threshold) {
-        ptr_buffer<expr> new_diseqs;
+        expr_ref_vector new_diseqs(m());
         for (unsigned i = 0; i < num_args; i++) {
             for (unsigned j = i + 1; j < num_args; j++)
-                new_diseqs.push_back(m().mk_not(mk_eq(args[i], args[j])));
+                new_diseqs.push_back(m().mk_not(m().mk_eq(args[i], args[j])));
         }
         result = m().mk_and(new_diseqs);
         return BR_REWRITE3;
@@ -819,6 +885,7 @@ br_status bool_rewriter::mk_ite_core(expr * c, expr * t, expr * e, expr_ref & re
         std::swap(t, e);
         s = true;
     }
+
 
     // (ite c (ite c t1 t2) t3)       ==> (ite c t1 t3
     if (m().is_ite(t) && to_app(t)->get_arg(0) == c) {
@@ -874,7 +941,7 @@ br_status bool_rewriter::mk_ite_core(expr * c, expr * t, expr * e, expr_ref & re
                 expr_ref tmp(m());
                 mk_not(c, tmp);
                 mk_and(tmp, e, result);
-                return BR_DONE;
+                return BR_REWRITE1;
             }
         }
         if (m().is_true(e) && m_elim_ite) {            
@@ -885,11 +952,11 @@ br_status bool_rewriter::mk_ite_core(expr * c, expr * t, expr * e, expr_ref & re
         }
         if (m().is_false(e) && m_elim_ite) {
             mk_and(c, t, result);
-            return BR_DONE;
+            return BR_REWRITE1;
         }
         if (c == e && m_elim_ite) {
             mk_and(c, t, result);
-            return BR_DONE;
+            return BR_REWRITE1;
         }
         if (c == t && m_elim_ite) {
             mk_or(c, e, result);
@@ -906,21 +973,22 @@ br_status bool_rewriter::mk_ite_core(expr * c, expr * t, expr * e, expr_ref & re
     }
 
 #if 0
-    expr* t1, *t2;
     // (ite c (not (= t1 t2)) t1) ==> (not (= t1 (and c t2)))
     if (m().is_not(t, t1) && m().is_eq(t1, t1, t2) && e == t1) {
         expr_ref a(m());
         mk_and(c, t2, a);
-        result = m().mk_not(m().mk_eq(t1, a));
-        return BR_REWRITE2;
+        result = mk_not(mk_eq(t1, a));
+        return BR_REWRITE3;
     }
     if (m().is_not(t, t1) && m().is_eq(t1, t2, t1) && e == t1) {
         expr_ref a(m());
         mk_and(c, t2, a);
-        result = m().mk_eq(t1, a);
-        return BR_REWRITE2;
+        result = mk_eq(t1, a);
+        return BR_REWRITE3;
     }
 #endif
+
+
 
 
     if (m().is_ite(t) && m_ite_extra_rules && m_elim_ite) {
@@ -931,14 +999,14 @@ br_status bool_rewriter::mk_ite_core(expr * c, expr * t, expr * e, expr_ref & re
             expr_ref new_c(m());
             mk_and(c, not_c2, new_c);
             result = m().mk_ite(new_c, to_app(t)->get_arg(2), e);
-            return BR_REWRITE1;
+            return BR_REWRITE2;
         }
         // (ite c1 (ite c2 t1 t2) t2) ==> (ite (and c1 c2) t1 t2)
         if (e == to_app(t)->get_arg(2)) {
             expr_ref new_c(m());
             mk_and(c, to_app(t)->get_arg(0), new_c);
             result = m().mk_ite(new_c, to_app(t)->get_arg(1), e);
-            return BR_REWRITE1;
+            return BR_REWRITE2;
         }
 
 
@@ -955,7 +1023,7 @@ br_status bool_rewriter::mk_ite_core(expr * c, expr * t, expr * e, expr_ref & re
                 expr_ref new_c(m());
                 mk_or(and1, and2, new_c);
                 result = m().mk_ite(new_c, to_app(t)->get_arg(1), to_app(t)->get_arg(2));
-                return BR_REWRITE1;
+                return BR_REWRITE3;
             }
 
             // (ite c1 (ite c2 t1 t2) (ite c3 t2 t1)) ==> (ite (or (and c1 c2) (and (not c1) (not c3))) t1 t2)
@@ -972,7 +1040,7 @@ br_status bool_rewriter::mk_ite_core(expr * c, expr * t, expr * e, expr_ref & re
                 expr_ref new_c(m());
                 mk_or(and1, and2, new_c);
                 result = m().mk_ite(new_c, to_app(t)->get_arg(1), to_app(t)->get_arg(2));
-                return BR_REWRITE1;
+                return BR_REWRITE3;
             }
         }
     }

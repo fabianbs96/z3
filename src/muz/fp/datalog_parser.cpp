@@ -228,20 +228,20 @@ public:
 
 
 class dlexer {
-    std::istream*   m_input;
-    char_reader*    m_reader;
-    char            m_prev_char;
-    char            m_curr_char;
-    int             m_line;
-    int             m_pos;
-    int             m_tok_pos;
+    std::istream*   m_input = nullptr;
+    char_reader*    m_reader = nullptr;
+    int             m_prev_char = 0;
+    int             m_curr_char = 0;
+    int             m_line = 1;
+    int             m_pos = 0;
+    int             m_tok_pos = 0;
     string_buffer<> m_buffer;
     reserved_symbols m_reserved_symbols;
 
 public:
     //when parsing domains, we want '.' character to be allowed in IDs, but elsewhere 
     //we don't (because of the "y." in rules like "P(x,y):-x=y.")
-    bool m_parsing_domains;
+    bool m_parsing_domains = false;
 
     bool eos() const {
         return m_curr_char == EOF;
@@ -267,17 +267,6 @@ public:
         next();
     }
 
-    dlexer():
-        m_input(nullptr),
-        m_reader(nullptr),
-        m_prev_char(0),
-        m_curr_char(0),
-        m_line(1),
-        m_pos(0),
-        m_tok_pos(0),
-        m_parsing_domains(false) {
-    }
-
     void set_stream(std::istream* s, char_reader* r) { 
         m_input = s; 
         m_reader = r;
@@ -286,9 +275,8 @@ public:
 
 
     dtoken read_num() {
-        while(isdigit(m_curr_char)) {
+        while (isdigit(m_curr_char)) 
             save_and_next();
-        }        
         return TK_NUM;
     }
 
@@ -557,7 +545,7 @@ protected:
             result = tok == TK_EOS && m_error == false;
         }
         catch (z3_exception& ex) {
-            std::cerr << ex.msg() << std::endl;
+            std::cerr << ex.what() << std::endl;
             result = false;
         }
         return result;
@@ -781,15 +769,29 @@ protected:
         symbol td1(td);
         expr_ref v1(m), v2(m);
         sort* s = nullptr;
-        dtoken tok2 = m_lexer->next_token();
-        if (tok2 != TK_NEQ && tok2 != TK_GT && tok2 != TK_LT && tok2 != TK_EQ) {
-            return unexpected(tok2, "built-in infix operator");
+        uint64_t num1(0), num3(0);
+        if (tok1 == TK_NUM) {
+            char const* data = m_lexer->get_token_data();
+            rational num(data);
+            if (!num.is_uint64()) 
+                return unexpected(tok1, "integer expected");
+            num1 = num.get_uint64();
         }
+        dtoken tok2 = m_lexer->next_token();
+        if (tok2 != TK_NEQ && tok2 != TK_GT && tok2 != TK_LT && tok2 != TK_EQ) 
+            return unexpected(tok2, "built-in infix operator");
         dtoken tok3 = m_lexer->next_token();
         td = m_lexer->get_token_data();
-        if (tok3 != TK_STRING && tok3 != TK_NUM && !(tok3 == TK_ID && m_vars.contains(td))) {
+        if (tok3 != TK_STRING && tok3 != TK_NUM && !(tok3 == TK_ID && m_vars.contains(td))) 
             return unexpected(tok3, "identifier");
+        if (tok3 == TK_NUM) {
+            char const* data = m_lexer->get_token_data();
+            rational num(data);
+            if (!num.is_uint64()) 
+                return unexpected(tok1, "integer expected");
+            num3 = num.get_uint64();
         }
+        
         symbol td2(td);
 
         if (tok1 == TK_ID) {
@@ -805,18 +807,21 @@ protected:
         if (!v1 && !v2) {
             return unexpected(tok3, "at least one argument should be a variable");
         }
-        if (v1) {
+        if (v1) 
             s = v1->get_sort();
-        }        
-        else {
+        else 
             s = v2->get_sort();
-        }
-        if (!v1) {
+         
+        if (tok1 == TK_NUM) 
+            v1 = mk_symbol_const(num1, s);
+
+        if (tok3 == TK_NUM)
+            v2 = mk_symbol_const(num3, s);
+        
+        if (!v1) 
             v1 = mk_const(td1, s);
-        }
-        if (!v2) {
+        if (!v2) 
             v2 = mk_const(td2, s);
-        }
 
         switch(tok2) {
         case TK_EQ:
@@ -886,7 +891,6 @@ protected:
         unsigned arg_idx = 0;
         tok = m_lexer->next_token();
         while (tok != TK_EOS && tok != TK_ERROR) {
-            symbol alias;
             sort* s = nullptr;
 
             if(!f) {
@@ -923,7 +927,6 @@ protected:
                 }
                 s = f->get_domain(arg_idx);
 
-                symbol var_symbol;
                 tok = parse_arg(tok, s, args);
             }
 
@@ -1051,7 +1054,7 @@ protected:
 
     bool read_line(std::istream& strm, std::string& line) {
         line.clear();
-        char ch = strm.get();
+        int ch = strm.get();
         while (ch == ' ' || ch == '\t' || ch == '\n' || ch == '\r') {
             ch = strm.get();
         }
@@ -1126,8 +1129,11 @@ protected:
         if (m_arith.is_int(s)) 
             return m_arith.mk_numeral(rational(el, rational::ui64()), s);
         else if (m_decl_util.try_get_size(s, sz)) {
-            if (el >= sz)
-                throw default_exception("numeric value out of bounds of domain");
+            if (el >= sz) {
+                std::ostringstream ous;
+                ous << "numeric value " << el << " is out of bounds of domain size " << sz;
+                throw default_exception(ous.str());
+            }
             return m_decl_util.mk_numeral(el, s);
         }
         else {
@@ -1219,7 +1225,7 @@ public:
             result = parse_directory_core(path);
         }
         catch (z3_exception& ex) {
-            std::cerr << ex.msg() << std::endl;
+            std::cerr << ex.what() << std::endl;
             return false;
         }
         return result;

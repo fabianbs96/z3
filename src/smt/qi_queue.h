@@ -51,7 +51,7 @@ namespace smt {
         cost_evaluator                m_evaluator;
         cached_var_subst              m_subst;
         svector<float>                m_vals;
-        double                        m_eager_cost_threshold;
+        double                        m_eager_cost_threshold = 0;
         struct entry {
             fingerprint * m_qb;
             float         m_cost;
@@ -80,7 +80,6 @@ namespace smt {
 
     public:
         qi_queue(quantifier_manager & qm, context & ctx, qi_params & params);
-        ~qi_queue();
         void setup();
         /**
            \brief Insert a new quantifier in the queue, f contains the quantifier and bindings.

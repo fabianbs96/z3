@@ -66,6 +66,7 @@ namespace smt {
     std::string context::last_failure_as_string() const {
         std::string r;
         switch(m_last_search_failure) {
+        case UNKNOWN:
         case OK: r = m_unknown; break;
         case MEMOUT: r = "memout"; break;
         case CANCELED: r = "canceled"; break;
@@ -82,7 +83,6 @@ namespace smt {
         case RESOURCE_LIMIT: r = "(resource limits reached)"; break;
         case QUANTIFIERS: r = "(incomplete quantifiers)"; break;
         case LAMBDAS: r = "(incomplete lambdas)"; break;
-        case UNKNOWN: r = m_unknown; break;
         }
         return r;
     }
@@ -132,7 +132,7 @@ namespace smt {
 
     void context::display_literal_info(std::ostream & out, literal l) const {
         smt::display_compact(out, l, m_bool_var2expr.data());
-        display_literal_smt2(out, l);
+        display_literal_smt2(out << " " << l << ": ", l);
         out << "relevant: " << is_relevant(bool_var2expr(l.var())) << ", val: " << get_assignment(l) << "\n";
     }
 
@@ -166,7 +166,7 @@ namespace smt {
         unsigned num = get_num_bool_vars();
         for (unsigned v = 0; v < num; v++) {
             expr * n = m_bool_var2expr[v];
-            ast_def_ll_pp(out, m, n, get_pp_visited(), true, false);
+            ast_def_ll_pp(out << v << " ", m, n, get_pp_visited(), true, false);
         }
     }
 
@@ -456,6 +456,7 @@ namespace smt {
             literal2expr(~consequent, n);
             fmls.push_back(std::move(n));
         }
+
         if (logic != symbol::null) out << "(set-logic " << logic << ")\n";
         visitor.collect(fmls);
         visitor.display_decls(out);
@@ -475,7 +476,7 @@ namespace smt {
 
     void context::display_lemma_as_smt_problem(std::ostream & out, unsigned num_antecedents, literal const * antecedents,
                                                unsigned num_eq_antecedents, enode_pair const * eq_antecedents,
-                                               literal consequent, symbol const& logic) const {
+                                               literal consequent, symbol const& logic, enode* x, enode* y) const {
         ast_pp_util visitor(m);
         expr_ref_vector fmls(m);
         visitor.collect(fmls);
@@ -489,6 +490,10 @@ namespace smt {
             enode_pair const & p = eq_antecedents[i];
             n = m.mk_eq(p.first->get_expr(), p.second->get_expr());
             fmls.push_back(n);
+        }
+        if (x && y) {
+            expr_ref eq(m.mk_eq(x->get_expr(), y->get_expr()), m);
+            fmls.push_back(m.mk_not(eq));
         }
         if (consequent != false_literal) {
             literal2expr(~consequent, n);
@@ -510,7 +515,7 @@ namespace smt {
 #else
         strm << "lemma_" << (++m_lemma_id) << ".smt2";
 #endif
-        return strm.str();
+        return std::move(strm).str();
     }
 
 
@@ -635,7 +640,7 @@ namespace smt {
             literal_vector lits;
             const_cast<conflict_resolution&>(*m_conflict_resolution).justification2literals(j.get_justification(), lits);
             out << "justification " << j.get_justification()->get_from_theory() << ": ";
-            // display_literals_smt2(out, lits);
+            display_literals_smt2(out, lits);
             break;
         }
         default:
@@ -704,19 +709,25 @@ namespace smt {
         for (clause* cp : m_lemmas)
             if (cp->get_num_literals() == 2)
                 ++bin_lemmas;
+        auto num_units = [&]() {
+            if (m_scopes.empty())
+                return m_assigned_literals.size();
+            else
+                return m_scopes[0].m_assigned_literals_lim;
+        };
         std::stringstream strm;
         strm << "(smt.stats " 
-             << std::setw(4) << m_stats.m_num_restarts << " "
-             << std::setw(6) << m_stats.m_num_conflicts << " "
-             << std::setw(6) << m_stats.m_num_decisions << " " 
-             << std::setw(6) << m_stats.m_num_propagations << " "
-             << std::setw(5) << (m_aux_clauses.size() + bin_clauses) << "/" << bin_clauses << " "
-             << std::setw(5) << m_lemmas.size(); if (bin_lemmas > 0) strm << "/" << bin_lemmas << " ";
-        strm << std::setw(5) << m_stats.m_num_simplifications << " "
-             << std::setw(4) << m_stats.m_num_del_clauses << " "
+             << std::setw(4) << m_stats.m_num_restarts << ' '
+             << std::setw(6) << m_stats.m_num_conflicts << ' '
+             << std::setw(6) << m_stats.m_num_decisions << ' '
+             << std::setw(6) << m_stats.m_num_propagations << ' '
+             << std::setw(5) << (m_aux_clauses.size() + bin_clauses) << '/' << bin_clauses << '/' << num_units() << ' '
+             << std::setw(7) << m_lemmas.size() << '/' << bin_lemmas << ' '
+             << std::setw(5) << m_stats.m_num_simplifications << ' '
+             << std::setw(4) << m_stats.m_num_del_clauses << ' '
              << std::setw(7) << mem_stat() << ")\n";
 
-        std::string str(strm.str());
+        std::string str = std::move(strm).str();
         svector<size_t> offsets;
         for (size_t i = 0; i < str.size(); ++i) {
             while (i < str.size() && str[i] != ' ') ++i;
@@ -739,8 +750,8 @@ namespace smt {
             m_last_position_log = m_stats.m_num_restarts;
             // restarts       decisions      clauses    simplifications  memory
             //      conflicts       propagations    lemmas       deletions
-            int adjust[9] = { -3, -3, -3, -3, -3, -3, -4, -4, -1 };
-            char const* tag[9] = { ":restarts ", ":conflicts ", ":decisions ", ":propagations ", ":clauses/bin ", ":lemmas ", ":simplify ", ":deletions", ":memory" };
+            const int adjust[9] = { -3, -3, -3, -3, -3, -4, -4, -4, -1 };
+            char const* tag[9] = { ":restarts ", ":conflicts ", ":decisions ", ":propagations ", ":clauses/bin/units ", ":lemmas ", ":simplify ", ":deletions", ":memory" };
 
             std::stringstream l1, l2;
             l1 << "(smt.stats ";

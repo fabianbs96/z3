@@ -663,19 +663,21 @@ void seq_decl_plugin::add_map_sig() {
     m_sigs[OP_SEQ_MAP]       = alloc(psig, m, "seq.map",      2, 2, arrABseqA, seqB);
     m_sigs[OP_SEQ_MAPI]      = alloc(psig, m, "seq.mapi",     2, 3, arrIABintTseqA, seqB);
     m_sigs[OP_SEQ_FOLDL]     = alloc(psig, m, "seq.fold_left",    2, 3, arrBAB_BseqA, B);
-    m_sigs[OP_SEQ_FOLDLI]    = alloc(psig, m, "seq.fold_leftli",   2, 4, arrIBABintTBseqA, B);
+    m_sigs[OP_SEQ_FOLDLI]    = alloc(psig, m, "seq.fold_lefti",   2, 4, arrIBABintTBseqA, B);
 }
 
 void seq_decl_plugin::get_op_names(svector<builtin_name> & op_names, symbol const & logic) {
     init();
     for (unsigned i = 0; i < m_sigs.size(); ++i) {
-        if (m_sigs[i]) 
-            op_names.push_back(builtin_name(m_sigs[i]->m_name.str(), i));        
+        if (m_sigs[i])
+            op_names.push_back(builtin_name(m_sigs[i]->m_name.str(), i));
     }
     op_names.push_back(builtin_name("seq.map",    OP_SEQ_MAP));
     op_names.push_back(builtin_name("seq.mapi",   OP_SEQ_MAPI));
     op_names.push_back(builtin_name("seq.foldl",  OP_SEQ_FOLDL));
     op_names.push_back(builtin_name("seq.foldli", OP_SEQ_FOLDLI));
+    op_names.push_back(builtin_name("seq.fold_lefti", OP_SEQ_FOLDLI));
+    op_names.push_back(builtin_name("seq.fold_left",  OP_SEQ_FOLDL));
     op_names.push_back(builtin_name("str.in.re", _OP_STRING_IN_REGEXP));
     op_names.push_back(builtin_name("str.in-re", _OP_STRING_IN_REGEXP));
     op_names.push_back(builtin_name("str.to.re", _OP_STRING_TO_REGEXP));
@@ -943,6 +945,17 @@ void seq_util::str::get_concat(expr* e, expr_ref_vector& es) const {
     }
 }
 
+void seq_util::str::get_concat(expr* e, ptr_vector<expr>& es) const {
+    expr* e1, * e2;
+    while (is_concat(e, e1, e2)) {
+        get_concat(e1, es);
+        e = e2;
+    }
+    if (!is_empty(e)) {
+        es.push_back(e);
+    }
+}
+
 /*
 Returns true if s is an expression of the form (l = |u|) |u|-k or (-k)+|u| or |u|+(-k).
 Also returns true and assigns k=0 and l=s if s is |u|.
@@ -1162,11 +1175,13 @@ expr* seq_util::rex::mk_loop_proper(expr* r, unsigned lo, unsigned hi)
         // avoid creating a loop with both bounds 0
         // such an expression is invalid as a loop
         // it is BY DEFINITION = epsilon
-        return mk_epsilon(seq_sort);
+        r = mk_epsilon(seq_sort);
+        return r;
     }
-    if (lo == 1 && hi == 1)
+    if (lo == 1 && hi == 1) {
         // do not create a loop unless it actually is a loop
         return r;
+    }
     parameter params[2] = { parameter(lo), parameter(hi) };
     return m.mk_app(m_fid, OP_RE_LOOP, 2, params, 1, &r);
 }

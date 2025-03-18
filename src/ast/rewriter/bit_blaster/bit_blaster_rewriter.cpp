@@ -21,6 +21,7 @@ Notes:
 #include "ast/rewriter/bit_blaster/bit_blaster_tpl_def.h"
 #include "ast/rewriter/rewriter_def.h"
 #include "ast/rewriter/bool_rewriter.h"
+#include "ast/rewriter/th_rewriter.h"
 #include "util/ref_util.h"
 #include "ast/ast_smt2_pp.h"
 
@@ -75,7 +76,7 @@ public:
         bit_blaster_tpl<blaster_cfg>(blaster_cfg(m_rewriter, m_util)),
         m_rewriter(m),
         m_util(m) {
-        m_rewriter.set_flat(false);
+        m_rewriter.set_flat_and_or(false);
         m_rewriter.set_elim_and(true);
     }
 
@@ -547,12 +548,22 @@ MK_PARAMETRIC_UNARY_REDUCE(reduce_sign_extend, mk_sign_extend);
             case OP_BIT2BOOL:
             case OP_MKBV:
             case OP_INT2BV:
-            case OP_BV2INT:
+            case OP_UBV2INT:
+            case OP_SBV2INT:
                 return BR_FAILED;
-            default:
+            default:                
                 TRACE("bit_blaster", tout << "non-supported operator: " << f->get_name() << "\n";
                       for (unsigned i = 0; i < num; i++) tout << mk_ismt2_pp(args[i], m()) << std::endl;);
+                {
+                    expr_ref r(m().mk_app(f, num, args), m());
+                    result = r;
+                    th_rewriter rw(m());
+                    rw(result);
+                    if (!is_app(result) || to_app(result)->get_decl() != f)
+                        return BR_REWRITE_FULL;                    
+                }
                 throw_unsupported(f);
+
             }
         }
 
@@ -604,6 +615,8 @@ MK_PARAMETRIC_UNARY_REDUCE(reduce_sign_extend, mk_sign_extend);
     bool reduce_var(var * t, expr_ref & result, proof_ref & result_pr) {
         if (m_blast_quant) {   
             if (m_bindings.empty())
+                return false;
+            if (!butil().is_bv(t))
                 return false;
             unsigned shift = m_shifts.back();
             if (t->get_idx() >= m_bindings.size()) {

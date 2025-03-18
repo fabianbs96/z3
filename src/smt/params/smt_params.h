@@ -18,6 +18,7 @@ Revision History:
 --*/
 #pragma once
 
+#include "ast/static_features.h"
 #include "smt/params/dyn_ack_params.h"
 #include "smt/params/qi_params.h"
 #include "smt/params/theory_arith_params.h"
@@ -112,6 +113,9 @@ struct smt_params : public preprocessor_params,
     bool             m_ematching = true;
     bool             m_induction = false;
     bool             m_clause_proof = false;
+    symbol           m_proof_log;
+    bool             m_sls_enable = false;
+    bool             m_sls_parallel = true;
 
     // -----------------------------------
     //
@@ -167,6 +171,14 @@ struct smt_params : public preprocessor_params,
     unsigned          m_new_clause_relevancy = 45; //!< Max. number of unassigned literals to be considered relevant.
     unsigned          m_old_clause_relevancy = 6; //!< Max. number of unassigned literals to be considered relevant.
     double            m_inv_clause_decay = 1;     //!< clause activity decay
+
+    // -----------------------------------
+    //
+    // User propagator configuration
+    //
+    // -----------------------------------
+
+    bool             m_up_persist_clauses = false;
 
     // -----------------------------------
     //
@@ -253,6 +265,51 @@ struct smt_params : public preprocessor_params,
     void display(std::ostream & out) const;
 
     void validate_string_solver(symbol const& s) const;
+
+    void setup_QF_UF();
+
+    void setup_QF_RDL();
+
+    void setup_QF_RDL(static_features & st);
+
+    void setup_QF_IDL();
+
+    void setup_QF_IDL(static_features & st);
+
+    void setup_QF_LRA();
+
+    void setup_QF_LRA(static_features const& st);
+
+    void setup_QF_LIA();
+
+    void setup_QF_LIA(static_features const& st);
+
+    void setup_QF_UFIDL();
+
+    void setup_QF_UFLIA();
+
+    void setup_QF_UFLRA();
+
+    void setup_QF_BV();
+
+    void setup_QF_AUFBV();
+
+    void setup_QF_AX();
+
+    void setup_QF_AX(static_features const& st);
+
+    void setup_QF_AUFLIA();
+
+    void setup_QF_AUFLIA(static_features const& st);
+
+    void setup_AUFLIA(bool simple_array);
+
+    void setup_AUFLIA(static_features const & st);
+
+    void setup_AUFLIRA(bool simple_array);
+
+    void setup_LRA();
+            
 };
 
 

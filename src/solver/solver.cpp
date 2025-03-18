@@ -22,7 +22,7 @@ Notes:
 #include "ast/ast_pp.h"
 #include "ast/ast_pp_util.h"
 #include "ast/display_dimacs.h"
-#include "tactic/model_converter.h"
+#include "ast/converters/model_converter.h"
 #include "solver/solver.h"
 #include "params/solver_params.hpp"
 #include "model/model_evaluator.h"
@@ -95,7 +95,7 @@ lbool solver::get_consequences(expr_ref_vector const& asms, expr_ref_vector cons
             return l_undef;
         }
         else {
-            set_reason_unknown(ex.msg());
+            set_reason_unknown(ex.what());
         }
         throw;
     }
@@ -225,6 +225,18 @@ void solver::collect_param_descrs(param_descrs & r) {
     insert_ctrl_c(r);
 }
 
+std::ostream& solver::display_parameters(std::ostream& out) {
+    //
+    // this is a partial patch. 
+    // The modules should be present in 'p'.
+    // if p has smt parameters that are updated, they may be visible.
+    // parameters within sub-solvers will / may not be visible at this level.
+    //
+    auto const& p = get_params();
+    gparams::display_updated_parameters(out, p);
+    return out;
+}
+
 void solver::reset_params(params_ref const & p) {
     m_params.append(p);
     solver_params sp(m_params);
@@ -317,10 +329,9 @@ lbool solver::check_sat(unsigned num_assumptions, expr * const * assumptions) {
     try {
         r = check_sat_core(num_assumptions, assumptions);
     }
-    catch (...) {
-        if (!get_manager().limit().inc(0)) {
-            dump_state(num_assumptions, assumptions);
-        }
+    catch (std::exception& ex) {
+        if (reason_unknown() == "")
+            set_reason_unknown(ex.what());
         throw;
     }
     if (r == l_undef && !get_manager().inc()) {

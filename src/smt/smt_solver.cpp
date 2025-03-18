@@ -20,7 +20,7 @@ Notes:
 #include "util/dec_ref_util.h"
 #include "ast/reg_decl_plugins.h"
 #include "ast/for_each_expr.h"
-#include "ast/ast_smt2_pp.h"
+#include "ast/ast_pp.h"
 #include "ast/func_decl_dependencies.h"
 #include "smt/smt_kernel.h"
 #include "smt/params/smt_params.h"
@@ -88,14 +88,14 @@ namespace {
             ast_translation translator(get_manager(), m);
 
             smt_solver * result = alloc(smt_solver, m, p, m_logic);
-            smt::kernel::copy(m_context, result->m_context);
+            smt::kernel::copy(m_context, result->m_context, true);
 
             if (mc0()) 
                 result->set_model_converter(mc0()->translate(translator));
 
-            for (auto & kv : m_name2assertion) { 
-                expr* val = translator(kv.m_value);
-                expr* key = translator(kv.m_key);
+            for (auto & [k, v] : m_name2assertion) {
+                expr* val = translator(k);
+                expr* key = translator(v);
                 result->assert_expr(val, key);
             }
 
@@ -104,9 +104,9 @@ namespace {
 
         ~smt_solver() override {
             dealloc(m_cuber);
-            for (auto& kv : m_name2assertion) {
-                get_manager().dec_ref(kv.m_key);
-                get_manager().dec_ref(kv.m_value);
+            for (auto& [k,v] : m_name2assertion) {
+                get_manager().dec_ref(k);
+                get_manager().dec_ref(v);
             }
         }
 
@@ -212,6 +212,10 @@ namespace {
             return m_context.get_trail(max_level);
         }
 
+        void register_on_clause(void* ctx, user_propagator::on_clause_eh_t& on_clause) override {
+            m_context.register_on_clause(ctx, on_clause);
+        }
+
         void user_propagate_init(
             void*                ctx, 
             user_propagator::push_eh_t&   push_eh,
@@ -248,6 +252,10 @@ namespace {
             m_context.user_propagate_register_decide(c);
         }
 
+        void user_propagate_initialize_value(expr* var, expr* value) override {
+            m_context.user_propagate_initialize_value(var, value);
+        }
+
         struct scoped_minimize_core {
             smt_solver& s;
             expr_ref_vector m_assumptions;
@@ -263,6 +271,7 @@ namespace {
         };
 
         void get_unsat_core(expr_ref_vector & r) override {
+
             unsigned sz = m_context.get_unsat_core_size();
             for (unsigned i = 0; i < sz; i++) {
                 r.push_back(m_context.get_unsat_core_expr(i));
@@ -289,7 +298,7 @@ namespace {
             m_context.get_model(m);
         }
 
-        proof * get_proof() override {
+        proof * get_proof_core() override {
             return m_context.get_proof();
         }
 
@@ -325,6 +334,12 @@ namespace {
         void get_units_core(expr_ref_vector& units) override {
             m_context.get_units(units);
         }
+
+        expr* congruence_next(expr* e) override { return m_context.congruence_next(e); }
+        expr* congruence_root(expr* e) override { return m_context.congruence_root(e); }
+        expr_ref congruence_explain(expr* a, expr* b) override { return m_context.congruence_explain(a, b); }
+        void  solve_for(vector<solver::solution>& s) override { m_context.solve_for(s); }
+
 
         expr_ref_vector cube(expr_ref_vector& vars, unsigned cutoff) override {
             ast_manager& m = get_manager();

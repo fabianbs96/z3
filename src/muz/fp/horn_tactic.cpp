@@ -20,9 +20,9 @@ Revision History:
 #include "ast/rewriter/var_subst.h"
 #include "ast/rewriter/expr_replacer.h"
 #include "tactic/tactical.h"
-#include "tactic/model_converter.h"
-#include "tactic/proof_converter.h"
-#include "tactic/generic_model_converter.h"
+#include "ast/converters/model_converter.h"
+#include "ast/converters/proof_converter.h"
+#include "ast/converters/generic_model_converter.h"
 #include "muz/fp/horn_tactic.h"
 #include "muz/base/dl_context.h"
 #include "muz/fp/dl_register_engine.h"
@@ -255,7 +255,7 @@ class horn_tactic : public tactic {
                 is_reachable = m_ctx.query(q);
             }
             catch (default_exception& ex) {
-                IF_VERBOSE(1, verbose_stream() << ex.msg() << "\n";);
+                IF_VERBOSE(1, verbose_stream() << ex.what() << "\n";);
                 throw ex;
             }
             g->inc_depth();

@@ -33,6 +33,18 @@ inline sort* get_array_domain(sort const * s, unsigned idx) {
     return to_sort(s->get_parameter(idx).get_ast());
 }
 
+inline expr_container array_select_indices(app* e) {
+    return expr_container(e->get_args() + 1, e->get_args() + e->get_num_args());
+}
+
+inline expr_container array_store_indices(app* e) {
+    return expr_container(e->get_args() + 1, e->get_args() + e->get_num_args() - 1);
+}
+
+inline expr* array_store_elem(app* e) {
+    return e->get_arg(e->get_num_args() - 1);
+}
+
 enum array_sort_kind {
     ARRAY_SORT,
     _SET_SORT
@@ -45,8 +57,6 @@ enum array_op_kind {
     OP_ARRAY_EXT,
     OP_ARRAY_DEFAULT,
     OP_ARRAY_MAP,
-    OP_ARRAY_MAXDIFF,
-    OP_ARRAY_MINDIFF,
     OP_SET_UNION,
     OP_SET_INTERSECT,
     OP_SET_DIFFERENCE,
@@ -139,6 +149,8 @@ class array_decl_plugin : public decl_plugin {
 
     bool is_value(app * e) const override;
 
+    bool is_unique_value(app* e) const override;
+
 };
 
 class array_recognizers {
@@ -161,8 +173,6 @@ public:
     bool is_complement(expr* n) const { return is_app_of(n, m_fid, OP_SET_COMPLEMENT); }
     bool is_as_array(expr * n) const { return is_app_of(n, m_fid, OP_AS_ARRAY); }
     bool is_as_array(expr * n, func_decl*& f) const { return is_as_array(n) && (f = get_as_array_func_decl(n), true); }
-    bool is_maxdiff(expr const* n) const { return is_app_of(n, m_fid, OP_ARRAY_MAXDIFF); }
-    bool is_mindiff(expr const* n) const { return is_app_of(n, m_fid, OP_ARRAY_MINDIFF); }
     bool is_set_has_size(expr* e) const { return is_app_of(e, m_fid, OP_SET_HAS_SIZE); }
     bool is_set_card(expr* e) const { return is_app_of(e, m_fid, OP_SET_CARD); }
     bool is_select(func_decl* f) const { return is_decl_of(f, m_fid, OP_SELECT); }
@@ -188,9 +198,22 @@ public:
 
     bool is_store_ext(expr* e, expr_ref& a, expr_ref_vector& args, expr_ref& value);
 
+
+    bool is_select1(expr* n) const { return is_select(n) && to_app(n)->get_num_args() == 2; }
+    
+    bool is_select1(expr* n, expr*& a, expr*& i) const {
+        return is_select1(n) && (a = to_app(n)->get_arg(0), i = to_app(n)->get_arg(1), true);
+    }
+
+    bool is_store1(expr* n) const { return is_store(n) && to_app(n)->get_num_args() == 3; }
+    
+    bool is_store1(expr* n, expr*& a, expr*& i, expr*& v) const {
+        app* _n;
+        return is_store1(n) && (_n = to_app(n), a = _n->get_arg(0), i = _n->get_arg(1), v = _n->get_arg(2), true);
+    }
+
+
     MATCH_BINARY(is_subset);
-    MATCH_BINARY(is_maxdiff);
-    MATCH_BINARY(is_mindiff);
 };
 
 class array_util : public array_recognizers {
@@ -211,6 +234,15 @@ public:
 
     app * mk_store(ptr_vector<expr> const& args) const {
         return mk_store(args.size(), args.data());
+    }
+
+    app* mk_store(ptr_buffer<expr> const& args) const {
+        return mk_store(args.size(), args.data());
+    }
+
+    app * mk_select(expr* a, expr* i) const {
+        expr* args[2] = { a, i };
+        return mk_select(2, args);
     }
 
     app * mk_select(unsigned num_args, expr * const * args) const {

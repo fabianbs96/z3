@@ -39,11 +39,8 @@ namespace mbp {
         bool              m_check_purified = true;  // check that variables are properly pure 
         bool              m_apply_projection = false;
 
-
         imp(ast_manager& m) :
             m(m), a(m) {}
-
-        ~imp() {}
 
         void insert_mul(expr* x, rational const& v, obj_map<expr, rational>& ts) {
             rational w;
@@ -155,6 +152,35 @@ namespace mbp {
                 }
                 SASSERT(found_eq);
             }
+            else if (m.is_and(lit) && !is_not) {
+                fmls.append(to_app(lit)->get_num_args(), to_app(lit)->get_args());
+                return true;
+            }
+            else if (m.is_or(lit) && is_not) {
+                for (expr* arg : *to_app(lit))
+                    fmls.push_back(mk_not(m, arg));
+                return true;
+            }
+            else if (m.is_or(lit) && !is_not) {
+                for (expr* arg : *to_app(lit)) {
+                    if (eval.is_true(arg)) {
+                        fmls.push_back(arg);
+                        return true;
+                    }
+                }
+                TRACE("qe", tout << "Skipping " << mk_pp(lit, m) << "\n";);
+                return false;
+            }
+            else if (m.is_and(lit) && is_not) {
+                for (expr* arg : *to_app(lit)) {
+                    if (eval.is_false(arg)) {
+                        fmls.push_back(mk_not(m, arg));
+                        return true;
+                    }
+                }
+                TRACE("qe", tout << "Skipping " << mk_pp(lit, m) << "\n";);
+                return false;
+            }
             else {
                 TRACE("qe", tout << "Skipping " << mk_pp(lit, m) << "\n";);
                 return false;
@@ -232,7 +258,7 @@ namespace mbp {
                 rational c0 = add_def(t1, mul1, coeffs);
                 tids.insert(t, mbo.add_div(coeffs, c0, mul1));
             }
-            else if (a.is_mod(t, t1, t2) && is_numeral(t2, mul1) && !mul1.is_zero()) {
+            else if (a.is_mod(t, t1, t2) && is_numeral(t2, mul1) && mul1 > 0) {
                 rational r;
                 val = eval(t);
                 if (!a.is_numeral(val, r)) {
@@ -248,8 +274,10 @@ namespace mbp {
                 extract_coefficients(mbo, eval, ts0, tids, coeffs);
                 mbo.add_divides(coeffs, c0, mul1);
             }
-            else
+            else {
+                TRACE("qe", tout << "insert mul " << mk_pp(t, m) << "\n");
                 insert_mul(t, mul, ts);
+            }
         }
 
         bool is_numeral(expr* t, rational& r) {
@@ -271,7 +299,7 @@ namespace mbp {
             return rational(b.is_pos() ? -1 : 1);
         }
 
-        bool operator()(model& model, app* v, app_ref_vector& vars, expr_ref_vector& lits) {
+        bool project1(model& model, app* v, app_ref_vector& vars, expr_ref_vector& lits) {
             app_ref_vector vs(m);
             vs.push_back(v);
             vector<def> defs;
@@ -358,8 +386,7 @@ namespace mbp {
                 return false;
             };
 
-            for (auto& kv : tids) {
-                expr* e = kv.m_key;
+            for (auto& [e, v] : tids) {
                 if (is_arith(e) && !is_pure(e) && !var_mark.is_marked(e))
                     mark_rec(fmls_mark, e);
             }
@@ -390,49 +417,77 @@ namespace mbp {
             TRACE("qe", tout << "remaining vars: " << vars << "\n";
             for (unsigned v : real_vars) tout << "v" << v << " " << mk_pp(index2expr[v], m) << "\n";
             mbo.display(tout););
-            vector<opt::model_based_opt::def> defs = mbo.project(real_vars.size(), real_vars.data(), compute_def);
+            vector<opt::model_based_opt::def_ref> defs = mbo.project(real_vars.size(), real_vars.data(), compute_def);
+
 
             vector<row> rows;
+            u_map<row> def_vars;
             mbo.get_live_rows(rows);
-            rows2fmls(rows, index2expr, fmls);
+            for (row const& r : rows) {
+                if (r.m_type == opt::t_mod)
+                    def_vars.insert(r.m_id, r);
+                else if (r.m_type == opt::t_div)
+                    def_vars.insert(r.m_id, r);
+            }
+            rows2fmls(def_vars, rows, index2expr, fmls);
             TRACE("qe", mbo.display(tout << "mbo result\n");
-            for (auto const& d : defs) tout << "def: " << d << "\n";
+            for (auto const& d : defs) if (d) tout << "def: " << *d << "\n";
             tout << fmls << "\n";);
 
             if (compute_def)
-                optdefs2mbpdef(defs, index2expr, real_vars, result);
+                optdefs2mbpdef(def_vars, defs, index2expr, real_vars, result);
             if (m_apply_projection && !apply_projection(eval, result, fmls))
                 return false;
 
             TRACE("qe",
                 for (auto const& [v, t] : result)
                     tout << v << " := " << t << "\n";
-            for (auto* f : fmls)
-                tout << mk_pp(f, m) << " := " << eval(f) << "\n";
-            tout << "fmls:" << fmls << "\n";);
+                  for (auto* f : fmls)
+                      tout << mk_pp(f, m) << " := " << eval(f) << "\n";
+                  tout << "fmls:" << fmls << "\n";);
             return true;
         }
 
-        void optdefs2mbpdef(vector<opt::model_based_opt::def> const& defs, ptr_vector<expr> const& index2expr, unsigned_vector const& real_vars, vector<def>& result) {
+        expr_ref from_def(u_map<row> const& def_vars, opt::model_based_opt::def const& d, bool is_int, ptr_vector<expr> const& index2expr) {
+            if (d.is_add()) {
+                return expr_ref(
+                    a.mk_add(from_def(def_vars, *d.to_add().x, is_int, index2expr),
+                             from_def(def_vars, *d.to_add().y, is_int, index2expr)), m); 
+
+            }
+            if (d.is_mul()) {
+                return expr_ref(
+                    a.mk_mul(from_def(def_vars, *d.to_mul().x, is_int, index2expr),
+                        from_def(def_vars, *d.to_mul().y, is_int, index2expr)), m);
+            }
+            if (d.is_const()) 
+                return expr_ref(a.mk_numeral(d.to_const().c, is_int), m);
+            if (d.is_var()) {
+                auto t = id2expr(def_vars, index2expr, d.to_var().v.m_id);
+                if (d.to_var().v.m_coeff != 1)
+                    t = a.mk_mul(a.mk_numeral(d.to_var().v.m_coeff, is_int), t);
+                return expr_ref(t, m);
+            }
+            if (d.is_div()) {
+                auto t = from_def(def_vars, *d.to_div().x, is_int, index2expr);
+                if (is_int)
+                    t = a.mk_idiv(t, a.mk_numeral(d.to_div().m_div, is_int));
+                else
+                    t = a.mk_div(t, a.mk_numeral(d.to_div().m_div, is_int));
+                return expr_ref(t, m);
+            }
+            UNREACHABLE();
+            return expr_ref(nullptr, m);
+        }
+
+        void optdefs2mbpdef(u_map<row> const& def_vars, vector<opt::model_based_opt::def_ref> const& defs, ptr_vector<expr> const& index2expr, unsigned_vector const& real_vars, vector<def>& result) {
             SASSERT(defs.size() == real_vars.size());
             for (unsigned i = 0; i < defs.size(); ++i) {
                 auto const& d = defs[i];
                 expr* x = index2expr[real_vars[i]];
                 bool is_int = a.is_int(x);
-                expr_ref_vector ts(m);
-                expr_ref t(m);
-                for (var const& v : d.m_vars)
-                    ts.push_back(var2expr(index2expr, v));
-                if (!d.m_coeff.is_zero())
-                    ts.push_back(a.mk_numeral(d.m_coeff, is_int));
-                if (ts.empty())
-                    ts.push_back(a.mk_numeral(rational(0), is_int));
-                t = mk_add(ts);
-                if (!d.m_div.is_one() && is_int)
-                    t = a.mk_idiv(t, a.mk_numeral(d.m_div, is_int));
-                else if (!d.m_div.is_one() && !is_int)
-                    t = a.mk_div(t, a.mk_numeral(d.m_div, is_int));
-                result.push_back(def(expr_ref(x, m), t));
+                auto t = from_def(def_vars, *d, is_int, index2expr);
+                result.push_back({ expr_ref(x, m), t });
             }
         }
 
@@ -463,7 +518,8 @@ namespace mbp {
                     t = a.mk_int(mod(r.m_coeff, r.m_mod));
                     return t;
                 }
-                ts.push_back(a.mk_int(r.m_coeff));
+                if (r.m_coeff != 0)
+                    ts.push_back(a.mk_int(r.m_coeff));
                 t = mk_add(ts);
                 t = a.mk_mod(t, a.mk_int(r.m_mod));
                 return t;
@@ -472,7 +528,8 @@ namespace mbp {
                     t = a.mk_int(div(r.m_coeff, r.m_mod));
                     return t;
                 }
-                ts.push_back(a.mk_int(r.m_coeff));
+                if (r.m_coeff != 0)
+                    ts.push_back(a.mk_int(r.m_coeff));
                 t = mk_add(ts);
                 t = a.mk_idiv(t, a.mk_int(r.m_mod));
                 return t;
@@ -484,15 +541,7 @@ namespace mbp {
             }
         }
 
-        void rows2fmls(vector<row> const& rows, ptr_vector<expr> const& index2expr, expr_ref_vector& fmls) {
-
-            u_map<row> def_vars;
-            for (row const& r : rows) {
-                if (r.m_type == opt::t_mod)
-                    def_vars.insert(r.m_id, r);
-                else if (r.m_type == opt::t_div)
-                    def_vars.insert(r.m_id, r);
-            }
+        void rows2fmls(u_map<row>& def_vars, vector<row> const& rows, ptr_vector<expr> const& index2expr, expr_ref_vector& fmls) {
 
             for (row const& r : rows) {
                 expr_ref t(m), s(m), val(m);
@@ -634,7 +683,7 @@ namespace mbp {
                     id = mbo.add_var(r, a.is_int(v));
                     tids.insert(v, id);
                 }
-                CTRACE("qe", kv.m_value.is_zero(), tout << mk_pp(v, m) << " has coefficeint 0\n";);
+                CTRACE("qe", kv.m_value.is_zero(), tout << mk_pp(v, m) << " has coefficient 0\n";);
                 if (!kv.m_value.is_zero()) {
                     coeffs.push_back(var(id, kv.m_value));
                 }
@@ -672,8 +721,8 @@ namespace mbp {
         dealloc(m_imp);
     }
 
-    bool arith_project_plugin::operator()(model& model, app* var, app_ref_vector& vars, expr_ref_vector& lits) {
-        return (*m_imp)(model, var, vars, lits);
+    bool arith_project_plugin::project1(model& model, app* var, app_ref_vector& vars, expr_ref_vector& lits) {
+        return m_imp->project1(model, var, vars, lits);
     }
 
     bool arith_project_plugin::operator()(model& model, app_ref_vector& vars, expr_ref_vector& lits) {
@@ -705,6 +754,6 @@ namespace mbp {
         ast_manager& m = lits.get_manager();
         arith_project_plugin ap(m);
         app_ref_vector vars(m);
-        return ap(model, var, vars, lits);
+        return ap.project1(model, var, vars, lits);
     }
 }

@@ -22,6 +22,7 @@ Notes:
 #include "util/mutex.h"
 #include "util/region.h"
 #include "util/map.h"
+#include "util/rational.h"
 
 static DECLARE_MUTEX(gparams_mux);
 
@@ -351,8 +352,8 @@ public:
             ps.set_uint(param_name, static_cast<unsigned>(val));
         }
         else if (k == CPK_DOUBLE) {
-            char * aux;
-            double val = strtod(value, &aux);
+            rational r(value);
+            double val = r.get_double();
             ps.set_double(param_name, val);
         }
         else if (k == CPK_BOOL) {
@@ -411,7 +412,7 @@ public:
         }
     }
 
-    std::string get_value(params_ref const & ps, std::string const & p) {
+    std::string get_value(params_ref const& ps, std::string const& p) {
         symbol sp(p.c_str());
         std::ostringstream buffer;
         ps.display(buffer, sp);
@@ -427,6 +428,19 @@ public:
         if (r == nullptr)
             return "default";
         return r;
+    }
+
+    void display_updated_parameters(std::ostream& out, params_ref const& p) {
+        param_descrs* d = nullptr;
+        for (auto const& [k, v] : m_module_params) {
+            if (!get_module_param_descr(k, d))
+                continue;
+            params_ref* ps = nullptr;
+            if (!m_module_params.find(k, ps))
+                continue;
+            ps->display_smt2(out, k, *d);
+            p.display_smt2(out, k, *d);
+        }
     }
 
     std::string get_value(char const * name) {
@@ -689,4 +703,8 @@ void gparams::finalize() {
 std::string& gparams::g_buffer() {
     SASSERT(g_imp);
     return g_imp->m_buffer;
+}
+
+void gparams::display_updated_parameters(std::ostream& out, params_ref const& p) {
+    g_imp->display_updated_parameters(out, p);
 }

@@ -10,7 +10,7 @@ assert(process.argv.length === 4, `Usage: ${process.argv[0]} ${process.argv[1]} 
 const wrapperFilePath = process.argv[2];
 const typesFilePath = process.argv[3];
 
-function makeTsWrapper() {
+async function makeTsWrapper() {
   const subtypes = {
     __proto__: null,
     Z3_sort: 'Z3_ast',
@@ -76,6 +76,7 @@ function makeTsWrapper() {
   }
 
   const isInParam = (p: FuncParam) => p.kind !== undefined && ['in', 'in_array'].includes(p.kind);
+
   function wrapFunction(fn: Func) {
     if (CUSTOM_IMPLEMENTATIONS.includes(fn.name)) {
       return null;
@@ -104,7 +105,7 @@ function makeTsWrapper() {
 
     let isAsync = asyncFuncs.includes(fn.name);
     let trivial =
-      !['string', 'boolean'].includes(fn.ret) &&
+      !['string', 'boolean', 'unsigned'].includes(fn.ret) &&
       !fn.nullableRet &&
       outParams.length === 0 &&
       !inParams.some(p => p.type === 'string' || p.isArray || p.nullable);
@@ -234,6 +235,7 @@ function makeTsWrapper() {
           function setArg() {
             args[outParam.idx] = memIdx === 0 ? 'outAddress' : `outAddress + ${memIdx * 4}`;
           }
+
           let read, type;
           if (outParam.type === 'string') {
             read = `Mod.UTF8ToString(getOutUint(${memIdx}))`;
@@ -330,11 +332,17 @@ function makeTsWrapper() {
       if (ret === 0) {
         return null;
       }
-    `.trim();
+      `.trim();
+    } else if (fn.ret === 'unsigned') {
+      infix += `
+      ret = (new Uint32Array([ret]))[0];
+      `.trim();
     }
 
+    // async functions are invocations of the wrapper from make-ts-wrapper.ts
+    // the wrapper spawns a thread and returns void, so we need to use void as the return type here
     // prettier-ignore
-    let invocation = `Mod.ccall('${isAsync ? 'async_' : ''}${fn.name}', '${cReturnType}', ${JSON.stringify(ctypes)}, [${args.map(toEm).join(', ')}])`;
+    let invocation = `Mod.ccall('${isAsync ? "async_" : ""}${fn.name}', '${isAsync ? 'void' : cReturnType}', ${JSON.stringify(ctypes)}, [${args.map(toEm).join(", ")}])`;
 
     if (isAsync) {
       invocation = `await Mod.async_call(() => ${invocation})`;
@@ -456,13 +464,18 @@ export async function init(initModule: any) {
 `;
 
   return {
-    wrapperDocument: prettier.format(wrapperDocument, { singleQuote: true, parser: 'typescript' }),
-    typesDocument: prettier.format(typesDocument, { singleQuote: true, parser: 'typescript' }),
+    wrapperDocument: await prettier.format(wrapperDocument, { singleQuote: true, parser: 'typescript' }),
+    typesDocument: await prettier.format(typesDocument, { singleQuote: true, parser: 'typescript' }),
   };
 }
 
-const { wrapperDocument, typesDocument } = makeTsWrapper();
-fs.mkdirSync(path.dirname(wrapperFilePath), { recursive: true });
-fs.writeFileSync(wrapperFilePath, wrapperDocument);
-fs.mkdirSync(path.dirname(typesFilePath), { recursive: true });
-fs.writeFileSync(typesFilePath, typesDocument);
+(async () => {
+  const { wrapperDocument, typesDocument } = await makeTsWrapper();
+  fs.mkdirSync(path.dirname(wrapperFilePath), { recursive: true });
+  fs.writeFileSync(wrapperFilePath, wrapperDocument);
+  fs.mkdirSync(path.dirname(typesFilePath), { recursive: true });
+  fs.writeFileSync(typesFilePath, typesDocument);
+})().catch(e => {
+  console.error(e);
+  process.exit(1);
+});

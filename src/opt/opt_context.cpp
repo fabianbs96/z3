@@ -39,10 +39,10 @@ Notes:
 #include "tactic/arith/card2bv_tactic.h"
 #include "tactic/arith/eq2bv_tactic.h"
 #include "tactic/bv/dt2bv_tactic.h"
-#include "tactic/generic_model_converter.h"
+#include "ast/converters/generic_model_converter.h"
 #include "ackermannization/ackermannize_bv_tactic.h"
 #include "sat/sat_solver/inc_sat_solver.h"
-#include "sat/sat_params.hpp"
+#include "params/sat_params.hpp"
 #include "opt/opt_context.h"
 #include "opt/opt_solver.h"
 #include "opt/opt_params.hpp"
@@ -53,13 +53,15 @@ namespace opt {
     void context::scoped_state::push() {
         m_asms_lim.push_back(m_asms.size());
         m_hard_lim.push_back(m_hard.size());
+        m_values_lim.push_back(m_values.size());
         m_objectives_lim.push_back(m_objectives.size());        
         m_objectives_term_trail_lim.push_back(m_objectives_term_trail.size());
     }
 
     void context::scoped_state::pop() {
-        m_hard.resize(m_hard_lim.back());
-        m_asms.resize(m_asms_lim.back());
+        m_hard.shrink(m_hard_lim.back());
+        m_asms.shrink(m_asms_lim.back());
+        m_values.shrink(m_values_lim.back());
         unsigned k = m_objectives_term_trail_lim.back();
         while (m_objectives_term_trail.size() > k) {
             unsigned idx = m_objectives_term_trail.back();
@@ -79,6 +81,7 @@ namespace opt {
         m_objectives_lim.pop_back();            
         m_hard_lim.pop_back();   
         m_asms_lim.pop_back();
+        m_values_lim.pop_back();
     }
     
     void context::scoped_state::add(expr* hard) {
@@ -124,7 +127,7 @@ namespace opt {
     }
 
     context::context(ast_manager& m):
-        m(m),
+        opt_wrapper(m),
         m_arith(m),
         m_bv(m),
         m_hard_constraints(m),
@@ -213,7 +216,7 @@ namespace opt {
 
     void context::add_hard_constraint(expr* f, expr* t) {
         if (m_calling_on_model) 
-            throw default_exception("adding soft constraints is not supported during callbacks");
+            throw default_exception("adding hard constraints is not supported during callbacks");
         m_scoped_state.m_asms.push_back(t);
         m_scoped_state.add(m.mk_implies(t, f));
         clear_state();
@@ -306,13 +309,12 @@ namespace opt {
         if (contains_quantifiers()) {
             warning_msg("optimization with quantified constraints is not supported");
         }
-#if 0
-        if (is_qsat_opt()) {
-            return run_qsat_opt();
-        }
-#endif
         solver& s = get_solver();
         s.assert_expr(m_hard_constraints);
+        if (m_model_converter)
+            m_model_converter->convert_initialize_value(m_scoped_state.m_values);
+        for (auto & [var, value] : m_scoped_state.m_values) 
+            s.user_propagate_initialize_value(var, value);
         
         opt_params optp(m_params);
         symbol pri = optp.priority();
@@ -399,9 +401,24 @@ namespace opt {
     void context::set_model(model_ref& m) { 
         m_model = m;
         opt_params optp(m_params);
-        if (optp.dump_models() && m) {
+        symbol prefix = optp.solution_prefix();
+        bool model2console = optp.dump_models();
+        bool model2file = prefix != symbol::null && prefix != symbol("");
+    
+        if ((model2console || model2file) && m) {
             model_ref md = m->copy();
             fix_model(md);
+            if (model2file) {
+                std::ostringstream buffer;
+                buffer << prefix << (m_model_counter++) << ".smt2";
+                std::ofstream out(buffer.str());        
+                if (out) {
+                    out << *md;
+                    out.close();
+                }
+            }
+            if (model2console)
+                std::cout << *md;
         }
         if (m_on_model_eh && m) {
             model_ref md = m->copy();
@@ -453,8 +470,8 @@ namespace opt {
     lbool context::execute_maxsat(symbol const& id, bool committed, bool scoped) {
         model_ref tmp;
         maxsmt& ms = *m_maxsmts.find(id);
-        if (scoped) get_solver().push();            
-        lbool result = ms();
+        if (scoped) get_solver().push();         
+        lbool result = ms(committed);
         if (result != l_false && (ms.get_model(tmp, m_labels), tmp.get())) {
             ms.get_model(m_model, m_labels);
         }
@@ -697,9 +714,29 @@ namespace opt {
         }
     }
 
+    void context::initialize_value(expr* var, expr* value) {
+        m_scoped_state.m_values.push_back({expr_ref(var, m), expr_ref(value, m)});
+    }
+
+
+    /**
+     * Set the solver to the SAT core.
+     * It requres:
+     * - either EUF is enabled or the query is finite domain.
+     * - it is a MaxSAT query because linear optimiation is not exposed over the EUF core.
+     *   - opt_solver relies on features from the legacy core.
+     * - the MaxSAT engine does not depend on old core features (branch and bound solver for MaxSAT)
+     * - proofs are not enabled
+     * Relaxation of these filters are possible by adding functionality to the new core.
+     * - Pareto optimizaiton might already be possible with EUF = true
+     * - optsmt needs to be disetangled from the legacy core
+     */
     void context::update_solver() {
         sat_params p(m_params);
         if (!p.euf() && (!m_enable_sat || !probe_fd())) 
+            return;
+        
+        if (!is_maxsat_query())
             return;
 
         if (m_maxsat_engine != symbol("maxres") &&
@@ -755,24 +792,29 @@ namespace opt {
         }        
     };
 
+    bool context::is_maxsat_query() {
+        for (objective& obj : m_objectives) 
+            if (obj.m_type != O_MAXSMT)
+                return false;
+        return true;
+    }
+
     bool context::probe_fd() {
         expr_fast_mark1 visited;
         is_fd proc(m);
-        try {
+        if (!is_maxsat_query())
+            return false;
+        try {            
             for (objective& obj : m_objectives) {
-                if (obj.m_type != O_MAXSMT) return false;
                 maxsmt& ms = *m_maxsmts.find(obj.m_id);
-                for (unsigned j = 0; j < ms.size(); ++j) {
+                for (unsigned j = 0; j < ms.size(); ++j) 
                     quick_for_each_expr(proc, visited, ms[j]);
-                }
             }
             unsigned sz = get_solver().get_num_assertions();
-            for (unsigned i = 0; i < sz; i++) {
+            for (unsigned i = 0; i < sz; i++) 
                 quick_for_each_expr(proc, visited, get_solver().get_assertion(i));
-            }
-            for (expr* f : m_hard_constraints) {
+            for (expr* f : m_hard_constraints) 
                 quick_for_each_expr(proc, visited, f);
-            }
         }
         catch (const is_fd::found_fd &) {
             return false;
@@ -885,12 +927,14 @@ namespace opt {
             ptr_vector<expr> deps;
             expr_dependency_ref core(r->dep(i), m);
             m.linearize(core, deps);
-            if (!deps.empty()) {
-                fmls.push_back(m.mk_implies(m.mk_and(deps.size(), deps.data()), r->form(i)));
-            }
-            else {
+            if (deps.empty())
+                fmls.push_back(r->form(i));                
+            else if (deps.size() == 1 && deps[0] == r->form(i))
+                continue;
+            else if (is_objective(r->form(i)))
                 fmls.push_back(r->form(i));
-            }
+            else
+                fmls.push_back(m.mk_implies(mk_and(m, deps.size(), deps.data()), r->form(i)));
         }        
         if (r->inconsistent()) {
             ptr_vector<expr> core_elems;
@@ -898,6 +942,10 @@ namespace opt {
             m.linearize(core, core_elems);
             m_core.append(core_elems.size(), core_elems.data());
         }
+    }
+
+    bool context::is_objective(expr* fml) {
+        return is_app(fml) && m_objective_fns.contains(to_app(fml)->get_decl());
     }
 
     bool context::is_maximize(expr* fml, app_ref& term, expr_ref& orig_term, unsigned& index) {
@@ -1135,20 +1183,6 @@ namespace opt {
     void context::model_updated(model* md) {
         model_ref mdl = md;
         set_model(mdl);
-#if 0
-        opt_params optp(m_params);
-        symbol prefix = optp.solution_prefix();
-        if (prefix == symbol::null || prefix == symbol("")) return;        
-        model_ref mdl = md->copy();
-        fix_model(mdl);
-        std::ostringstream buffer;
-        buffer << prefix << (m_model_counter++) << ".smt2";
-        std::ofstream out(buffer.str());        
-        if (out) {
-            out << *mdl;
-            out.close();
-        }
-#endif
     }
 
     rational context::adjust(unsigned id, rational const& v) {

@@ -297,9 +297,10 @@ namespace smt {
     void context::assert_default(expr * n, proof * pr) {
         internalize(n, true);
         literal l = get_literal(n);
-        if (l == false_literal) {
+        if (l == false_literal) 
             set_conflict(mk_justification(justification_proof_wrapper(*this, pr)));
-        }
+        else if (l == true_literal)
+            return;
         else {
             justification* j = mk_justification(justification_proof_wrapper(*this, pr));
             m_clause_proof.add(l, CLS_AUX, j);
@@ -353,7 +354,7 @@ namespace smt {
     */
     void context::internalize(expr * n, bool gate_ctx) {
         if (memory::above_high_watermark())
-            throw default_exception("resource limit exceeded during internalization");
+            throw cancel_exception();
         internalize_deep(n);
         internalize_rec(n, gate_ctx);
     }
@@ -615,11 +616,15 @@ namespace smt {
 
     bool context::has_lambda() {
         for (auto const & [n, q] : m_lambdas) {
-            if (n->get_class_size() != 1) 
+            if (n->get_class_size() != 1) {
+                TRACE("context", tout << "class size " << n->get_class_size() << " " << enode_pp(n, *this) << "\n");
                 return true;
+            }
             for (enode* p : enode::parents(n)) 
-                if (!is_beta_redex(p, n)) 
+                if (!is_beta_redex(p, n)) {
+                    TRACE("context", tout << "not a beta redex " << enode_pp(p, *this) << "\n");
                     return true;
+                }
         }
         return false;
     }
@@ -1137,10 +1142,13 @@ namespace smt {
         for (unsigned i = 0; i < num_lits; i++) {
             literal curr = lits[i];
             lbool   val  = get_assignment(curr);
-            switch(val) {
+            switch (val) {
             case l_false:
                 TRACE("simplify_aux_clause_literals", display_literal_verbose(tout << get_assign_level(curr) << " " << get_scope_level() << " " << curr << ":", curr); tout << "\n"; );
-                simp_lits.push_back(~curr);
+                if (curr != prev) {
+                    prev = curr;
+                    simp_lits.push_back(~curr);
+                }
                 break; // ignore literal                
                 // fall through
             case l_undef:
@@ -1373,12 +1381,14 @@ namespace smt {
     clause * context::mk_clause(unsigned num_lits, literal * lits, justification * j, clause_kind k, clause_del_eh * del_eh) {
         TRACE("mk_clause", display_literals_verbose(tout << "creating clause: " << literal_vector(num_lits, lits) << "\n", num_lits, lits) << "\n";);
         m_clause_proof.add(num_lits, lits, k, j);
+        literal_buffer simp_lits;
         switch (k) {
         case CLS_TH_AXIOM:
             dump_axiom(num_lits, lits);
             Z3_fallthrough;
         case CLS_AUX: {
-            literal_buffer simp_lits;
+            if (m_searching)
+                dump_lemma(num_lits, lits);
             if (!simplify_aux_clause_literals(num_lits, lits, simp_lits)) {
                 if (j && !j->in_region()) {
                     j->del_eh(m);
@@ -1389,7 +1399,7 @@ namespace smt {
             DEBUG_CODE(for (literal lit : simp_lits) SASSERT(get_assignment(lit) == l_true););
             if (!simp_lits.empty()) {
                 j = mk_justification(unit_resolution_justification(*this, j, simp_lits.size(), simp_lits.data()));
-            }
+            }            
             break;
         }
         case CLS_TH_LEMMA:
@@ -1415,6 +1425,7 @@ namespace smt {
         unsigned activity = 1;
         bool  lemma = is_lemma(k);
         m_stats.m_num_mk_lits += num_lits;
+
         switch (num_lits) {
         case 0:
             if (j && !j->in_region())
@@ -1423,12 +1434,14 @@ namespace smt {
             set_conflict(j == nullptr ? b_justification::mk_axiom() : b_justification(j));
             SASSERT(inconsistent());
             return nullptr;
-        case 1:
+        case 1: {
+            literal unit = lits[0];
             if (j && !j->in_region())
                 m_justifications.push_back(j);
-            assign(lits[0], j);
-            inc_ref(lits[0]);
+            assign(unit, j);
+            inc_ref(unit);
             return nullptr;
+        }
         case 2:
             if (use_binary_clause_opt(lits[0], lits[1], lemma)) {
                 literal l1 = lits[0];
@@ -1443,7 +1456,7 @@ namespace smt {
                 else if (get_assignment(l2) == l_false) {
                     assign(l1, b_justification(~l2));
                 }
-                m_clause_proof.add(l1, l2, k, j);
+                m_clause_proof.add(l1, l2, k, j, &simp_lits);
                 m_stats.m_num_mk_bin_clause++;
                 return nullptr;
             }
@@ -1456,7 +1469,7 @@ namespace smt {
             bool reinit         = save_atoms;
             SASSERT(!lemma || j == 0 || !j->in_region());
             clause * cls = clause::mk(m, num_lits, lits, k, j, del_eh, save_atoms, m_bool_var2expr.data());
-            m_clause_proof.add(*cls);
+            m_clause_proof.add(*cls, &simp_lits);
             if (lemma) {
                 cls->set_activity(activity);
                 if (k == CLS_LEARNED) {
@@ -1521,7 +1534,6 @@ namespace smt {
     }
 
     void context::dump_lemma(unsigned n, literal const* lits) {
-        
         if (m_fparams.m_lemmas2console) {
             expr_ref fml(m);
             expr_ref_vector fmls(m);
@@ -1530,7 +1542,7 @@ namespace smt {
             fml = mk_or(fmls);
             m_lemma_visitor.collect(fml);
             m_lemma_visitor.display_skolem_decls(std::cout);
-            m_lemma_visitor.display_assert(std::cout, fml.get(), true);
+            m_lemma_visitor.display_assert(std::cout, fml.get(), false);
         }
 
     }
@@ -1553,6 +1565,10 @@ namespace smt {
             js = mk_justification(theory_axiom_justification(tid, *this, num_lits, lits, num_params, params));
         }
         mk_clause(num_lits, lits, js, k);
+    }
+    
+    void context::mk_th_axiom(theory_id tid, literal l1, unsigned num_params, parameter * params) {
+        mk_th_axiom(tid, 1, &l1, num_params, params);
     }
     
     void context::mk_th_axiom(theory_id tid, literal l1, literal l2, unsigned num_params, parameter * params) {
@@ -1585,6 +1601,18 @@ namespace smt {
         if (m.proofs_enabled()) {
             proof * pr = mk_clause_def_axiom(num_lits, lits, nullptr);
             TRACE("gate_clause", tout << mk_ll_pp(pr, m););
+            mk_clause(num_lits, lits, mk_justification(justification_proof_wrapper(*this, pr)));
+        }
+        else if (clause_proof_active()) {
+            ptr_buffer<expr> new_lits;
+            for (unsigned i = 0; i < num_lits; i++) {
+                literal l      = lits[i];
+                bool_var v     = l.var();
+                expr * atom    = m_bool_var2expr[v]; 
+                new_lits.push_back(l.sign() ? m.mk_not(atom) : atom);
+            }
+            // expr* fact = m.mk_or(new_lits);
+            proof* pr = m.mk_app(symbol("tseitin"), new_lits.size(), new_lits.data(), m.mk_proof_sort());
             mk_clause(num_lits, lits, mk_justification(justification_proof_wrapper(*this, pr)));
         }
         else {
@@ -1620,9 +1648,11 @@ namespace smt {
             }
             mk_clause(num_lits, lits, mk_justification(justification_proof_wrapper(*this, pr)));
         }
-        else {
+        else if (pr && clause_proof_active()) 
+            // support logging of quantifier instantiations and other more detailed information
+            mk_clause(num_lits, lits, mk_justification(justification_proof_wrapper(*this, pr)));
+        else 
             mk_clause(num_lits, lits, nullptr);
-        }
     }
 
     void context::mk_root_clause(literal l1, literal l2, proof * pr) {
@@ -1809,7 +1839,7 @@ namespace smt {
             // Case) there is a variable old_v in the var-list of n.
             //
             // Remark: This variable was moved to the var-list of n due to a add_eq.
-            SASSERT(th->get_enode(old_v) != n); // this varialbe is not owned by n
+            SASSERT(th->get_enode(old_v) != n); // this variable is not owned by n
             SASSERT(n->get_root()->get_th_var(th_id) != null_theory_var); // the root has also a variable in its var-list.
             n->replace_th_var(v, th_id);
             push_trail(replace_th_var_trail( n, th_id, old_v));

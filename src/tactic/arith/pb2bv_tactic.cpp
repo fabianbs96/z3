@@ -28,14 +28,14 @@ Notes:
 #include "ast/rewriter/rewriter_def.h"
 #include "ast/rewriter/pb2bv_rewriter.h"
 #include "tactic/tactical.h"
-#include "tactic/arith/bound_manager.h"
-#include "tactic/generic_model_converter.h"
+#include "ast/simplifiers/bound_manager.h"
+#include "ast/converters/generic_model_converter.h"
 #include "tactic/arith/pb2bv_model_converter.h"
 #include "tactic/arith/pb2bv_tactic.h"
 
 class pb2bv_tactic : public tactic {
 public:
-    struct non_pb { expr* e; non_pb(expr* e) : e(e) {}};
+    struct non_pb : public std::exception { expr* e; non_pb(expr* e) : e(e) {}};
 
     struct only_01_visitor {
         typedef rational numeral;
@@ -167,7 +167,7 @@ private:
 
         enum constraint_kind { EQ, GE, LE };
 
-        struct failed {};
+        struct failed : public std::exception {};
 
         struct visitor {
             imp & m_owner;
@@ -866,7 +866,7 @@ private:
             m_used_dependencies(m),
             m_rw(*this) {
             updt_params(p);            
-            m_b_rw.set_flat(false); // no flattening otherwise will blowup the memory
+            m_b_rw.set_flat_and_or(false); // no flattening otherwise will blowup the memory
             m_b_rw.set_elim_and(true);
         }
 
@@ -913,7 +913,9 @@ private:
                 return;
             }
 
-            m_bm(*g);
+            unsigned size = g->size();
+            for (unsigned i = 0; i < size; i++) 
+                m_bm(g->form(i), g->dep(i), g->pr(i));
             
             TRACE("pb2bv", m_bm.display(tout););
 
@@ -924,7 +926,6 @@ private:
                 throw_tactic(p.e);
             }
                         
-            unsigned size = g->size();
             expr_ref_vector new_exprs(m);
             expr_dependency_ref_vector new_deps(m);
 
@@ -1042,7 +1043,8 @@ struct is_pb_probe : public probe {
         try {
             ast_manager & m = g.m();
             bound_manager bm(m);
-            bm(g);
+            for (unsigned i = 0; i < g.size(); i++) 
+                bm(g.form(i), g.dep(i), g.pr(i));
             arith_util a_util(m);
             pb_util pb(m);
             expr_fast_mark1 visited;

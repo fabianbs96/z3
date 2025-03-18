@@ -906,9 +906,9 @@ namespace {
         void linearise_core() {
             m_aux.reset();
             app *         first_app = nullptr;
-            unsigned      first_app_reg;
-            unsigned      first_app_sz;
-            unsigned      first_app_num_unbound_vars;
+            unsigned      first_app_reg = 0;
+            unsigned      first_app_sz = 0;
+            unsigned      first_app_num_unbound_vars = 0;
             // generate first the non-BIND operations
             for (unsigned reg : m_todo) {
                 expr *  p    = m_registers[reg];
@@ -1995,9 +1995,6 @@ namespace {
             m_args.resize(INIT_ARGS_SIZE);
         }
 
-        ~interpreter() {
-        }
-
         void init(code_tree * t) {
             TRACE("mam_bug", tout << "preparing to match tree:\n" << *t << "\n";);
             m_registers.reserve(t->get_num_regs(), nullptr);
@@ -2006,33 +2003,36 @@ namespace {
                 m_backtrack_stack.resize(t->get_num_choices());
         }
 
-        void execute(code_tree * t) {
+        bool execute(code_tree * t) {
             TRACE("trigger_bug", tout << "execute for code tree:\n"; t->display(tout););
             init(t);
+#define CLEANUP  for (enode* app : t->get_candidates()) if (app->is_marked()) app->unset_mark();
             if (t->filter_candidates()) {
                 for (enode* app : t->get_candidates()) {
                     TRACE("trigger_bug", tout << "candidate\n" << mk_ismt2_pp(app->get_expr(), m) << "\n";);
                     if (!app->is_marked() && app->is_cgr()) {
-                        if (m_context.resource_limits_exceeded() || !execute_core(t, app))
-                            return;
+                        if (m_context.resource_limits_exceeded() || !execute_core(t, app)) {
+                            CLEANUP;
+                            return false;
+                        }
                         app->set_mark();
                     }
                 }
-                for (enode* app : t->get_candidates()) {
-                    if (app->is_marked())
-                        app->unset_mark();
-                }
+                CLEANUP;
+                
             }
             else {
                 for (enode* app : t->get_candidates()) {
                     TRACE("trigger_bug", tout << "candidate\n" << mk_ismt2_pp(app->get_expr(), m) << "\n";);
                     if (app->is_cgr()) {
                         TRACE("trigger_bug", tout << "is_cgr\n";);
+                        // scoped_suspend_rlimit susp(m.limit(), false);
                         if (m_context.resource_limits_exceeded() || !execute_core(t, app))
-                            return;
+                            return false;
                     }
                 }
             }
+            return true;
         }
 
         // init(t) must be invoked before execute_core
@@ -2410,7 +2410,10 @@ namespace {
             m_n2 = static_cast<const check *>(m_pc)->m_enode;
             SASSERT(m_n1 != 0);
             SASSERT(m_n2 != 0);
-            if (m_n1->get_root() != m_n2->get_root())
+
+            // hack to handle dynamically generated patterns:
+            // if the pattern is ground and an if-expression, ignore equality check.
+            if (m_n1->get_root() != m_n2->get_root() && !m.is_ite(m_n2->get_expr()))
                 goto backtrack;
 
             // we used the equality m_n1 = m_n2 for the match and need to make sure it ends up in the log
@@ -3886,7 +3889,8 @@ namespace {
             TRACE("trigger_bug", tout << "match\n"; display(tout););
             for (code_tree* t : m_to_match) {
                 SASSERT(t->has_candidates());
-                m_interpreter.execute(t);
+                if (!m_interpreter.execute(t))
+                    return;
                 t->reset_candidates();
             }
             m_to_match.reset();
@@ -3936,9 +3940,11 @@ namespace {
                 }
                 return;
             }
-            for (unsigned i = 0; i < num_bindings; i++) {
-                SASSERT(bindings[i]->get_generation() <= max_generation);
-            }
+            DEBUG_CODE(
+                for (unsigned i = 0; i < num_bindings; i++) {
+                    SASSERT(bindings[i]->get_generation() <= max_generation);
+                });
+                
 #endif
             unsigned min_gen = 0, max_gen = 0;
             m_interpreter.get_min_max_top_generation(min_gen, max_gen);
@@ -3954,7 +3960,7 @@ namespace {
         void relevant_eh(enode * n, bool lazy) override {
             TRACE("trigger_bug", tout << "relevant_eh:\n" << mk_ismt2_pp(n->get_expr(), m) << "\n";
                   tout << "mam: " << this << "\n";);
-            TRACE("mam", tout << "relevant_eh: #" << n->get_owner_id() << "\n";);
+            TRACE("mam", tout << "relevant_eh: #" << enode_pp(n, m_context) << "\n";);
             if (n->has_lbl_hash())
                 update_lbls(n, n->get_lbl_hash());
 

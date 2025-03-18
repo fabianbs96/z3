@@ -16,9 +16,9 @@ Author:
 Revision History:
 
 --*/
+#include "params/sat_params.hpp"
 #include "sat/sat_config.h"
 #include "sat/sat_types.h"
-#include "sat/sat_params.hpp"
 #include "sat/sat_simplifier_params.hpp"
 #include "params/solver_params.hpp"
 
@@ -46,7 +46,7 @@ namespace sat {
         else if (s == symbol("static"))
             m_restart = RS_STATIC;
         else
-            throw sat_param_exception("invalid restart strategy");
+            throw sat_param_exception("invalid restart strategy. Use ema (default), luby, geometric, static");
 
         m_fast_glue_avg = p.restart_emafastglue();
         m_slow_glue_avg = p.restart_emaslowglue();
@@ -65,6 +65,8 @@ namespace sat {
             m_phase = PS_RANDOM;
         else if (s == symbol("frozen"))
             m_phase = PS_FROZEN;
+        else if (s == symbol("local_search"))
+            m_phase = PS_LOCAL_SEARCH;
         else
             throw sat_param_exception("invalid phase selection strategy: always_false, always_true, basic_caching, caching, random");
 
@@ -104,8 +106,6 @@ namespace sat {
         else
             m_local_search_mode = local_search_mode::wsat;
         m_local_search_dbg_flips = p.local_search_dbg_flips();
-        //m_binspr            = p.binspr();
-        m_binspr            = false;     // prevent adventurous users from trying feature that isn't ready
         m_anf_simplify      = p.anf();
         m_anf_delay         = p.anf_delay();
         m_anf_exlin         = p.anf_exlin();
@@ -197,8 +197,16 @@ namespace sat {
         m_drat_check_unsat  = p.drat_check_unsat();
         m_drat_check_sat  = p.drat_check_sat();
         m_drat_file       = p.drat_file();
-        m_smt_proof       = p.smt_proof();
-        m_drat            = !p.drat_disable() && (sp.lemmas2console() || m_drat_check_unsat || m_drat_file.is_non_empty_string() || m_smt_proof.is_non_empty_string() || m_drat_check_sat) && p.threads() == 1;
+        m_smt_proof_check = p.smt_proof_check();
+        m_drat_disable = p.drat_disable();
+        m_drat            =
+            !m_drat_disable && p.threads() == 1 &&
+            (sp.lemmas2console() ||
+             m_drat_check_unsat ||
+             m_drat_file.is_non_empty_string() ||
+             sp.proof_log().is_non_empty_string() ||
+             m_smt_proof_check ||
+             m_drat_check_sat);
         m_drat_binary     = p.drat_binary();
         m_drat_activity   = p.drat_activity();
         m_dyn_sub_res     = p.dyn_sub_res();

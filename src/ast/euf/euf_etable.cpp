@@ -201,8 +201,6 @@ namespace euf {
     enode_bool_pair etable::insert(enode * n) {
         // it doesn't make sense to insert a constant.
         SASSERT(n->num_args() > 0);
-        SASSERT(!m_manager.is_and(n->get_expr()));
-        SASSERT(!m_manager.is_or(n->get_expr()));
         enode * n_prime;
         void * t = get_table(n); 
         switch (static_cast<table_kind>(GET_TAG(t))) {
@@ -239,6 +237,8 @@ namespace euf {
             UNTAG(table*, t)->erase(n);
             break;
         }
+        CTRACE("euf", contains_ptr(n), display(tout));
+        SASSERT(!contains_ptr(n));
     }
 
     bool etable::contains(enode* n) const {

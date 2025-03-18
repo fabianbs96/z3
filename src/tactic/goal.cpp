@@ -159,9 +159,7 @@ void goal::quick_process(bool save_first, expr_ref& f, expr_dependency * d) {
     while (!todo.empty()) {
         if (m_inconsistent)
             return;
-        expr_pol p = todo.back();
-        expr * curr = p.first;
-        bool   pol = p.second;
+        auto [curr, pol] = todo.back();
         todo.pop_back();
         if (pol && m().is_and(curr)) {
             app * t = to_app(curr);
@@ -488,22 +486,21 @@ void goal::shrink(unsigned j) {
 /**
    \brief Eliminate true formulas.
 */
-void goal::elim_true() {
-    unsigned sz = size();
-    unsigned j = 0;
-    for (unsigned i = 0; i < sz; i++) {
-        expr * f = form(i);
-        if (m().is_true(f))
-            continue;
-        if (i == j) {
-            j++;
+void goal::elim_true() {    
+    unsigned i = 0, j = 0;
+    for (auto [f, dep, pr] : *this) {
+        if (m().is_true(f)) {
+            ++i;
             continue;
         }
-        m().set(m_forms, j, f);
-        m().set(m_proofs, j, m().get(m_proofs, i));
-        if (unsat_core_enabled())
-            m().set(m_dependencies, j, m().get(m_dependencies, i));
-        j++;
+        if (i != j) {
+            m().set(m_forms, j, f);
+            m().set(m_proofs, j, pr);
+            if (unsat_core_enabled())
+                m().set(m_dependencies, j, dep);
+        }
+        ++i;
+        ++j;
     }
     shrink(j);
 }
@@ -541,7 +538,7 @@ void goal::elim_redundancies() {
     expr_ref_fast_mark1 neg_lits(m());
     expr_ref_fast_mark2 pos_lits(m());
     unsigned sz = size();
-    unsigned j  = 0;
+    unsigned j = 0;
     for (unsigned i = 0; i < sz; i++) {
         expr * f = form(i);
         if (m().is_true(f))
@@ -694,28 +691,23 @@ bool goal::is_cnf() const {
     for (unsigned i = 0; i < size(); i++) {
         expr * f = form(i);
         if (m_manager.is_or(f)) {
-            for (expr* lit : *to_app(f)) {
-                if (!is_literal(lit)) {
+            for (expr* lit : *to_app(f)) 
+                if (!is_literal(lit)) 
                     return false;
-                }
-            }
-            return true;
         }
-        if (!is_literal(f)) {
+        else if (!is_literal(f)) 
             return false;
-        }
     }
     return true;
 }
 
 bool goal::is_literal(expr* f) const {
     m_manager.is_not(f, f);
-    if (!is_app(f)) return false;
-    if (to_app(f)->get_family_id() == m_manager.get_basic_family_id()) {
+    if (!is_app(f)) 
+        return false;
+    if (to_app(f)->get_family_id() == m_manager.get_basic_family_id()) 
         for (expr* arg : *to_app(f)) 
-            if (m_manager.is_bool(arg)) {
+            if (m_manager.is_bool(arg)) 
                 return false;
-            }
-    }
     return true;
 }

@@ -27,7 +27,7 @@ Revision History:
 #include "tactic/core/nnf_tactic.h"
 #include "tactic/core/simplify_tactic.h"
 #include "ast/rewriter/th_rewriter.h"
-#include "tactic/generic_model_converter.h"
+#include "ast/converters/generic_model_converter.h"
 #include "ast/ast_smt2_pp.h"
 #include "ast/ast_pp.h"
 #include "ast/rewriter/expr_replacer.h"
@@ -444,7 +444,7 @@ struct purify_arith_proc {
             expr * x = args[0];
             bool is_int = u().is_int(x);
 
-            expr * k = mk_fresh_var(is_int);
+            expr * k = mk_fresh_var(false);
             result = k;
             mk_def_proof(k, t, result_pr);
             cache_result(t, result, result_pr);
@@ -454,7 +454,7 @@ struct purify_arith_proc {
             if (y.is_zero()) {
                 expr* p0;
                 if (is_int) {
-                    if (!m_ipower0) m_ipower0 = mk_fresh_var(true);
+                    if (!m_ipower0) m_ipower0 = mk_fresh_var(false);
                     p0 = m_ipower0;
                 }
                 else {
@@ -911,11 +911,11 @@ public:
 
     void collect_param_descrs(param_descrs & r) override {
         r.insert("complete", CPK_BOOL, 
-                 "(default: true) add constraints to make sure that any interpretation of a underspecified arithmetic operators is a function. The result will include additional uninterpreted functions/constants: /0, div0, mod0, 0^0, neg-root");
+                 "add constraints to make sure that any interpretation of a underspecified arithmetic operators is a function. The result will include additional uninterpreted functions/constants: /0, div0, mod0, 0^0, neg-root", "true");
         r.insert("elim_root_objects", CPK_BOOL,
-                 "(default: true) eliminate root objects.");
+                 "eliminate root objects.", "true");
         r.insert("elim_inverses", CPK_BOOL,
-                 "(default: true) eliminate inverse trigonometric functions (asin, acos, atan).");
+                 "eliminate inverse trigonometric functions (asin, acos, atan).", "true");
         th_rewriter::get_param_descrs(r);
     }
     
@@ -937,7 +937,7 @@ public:
             result.push_back(g.get());
         }
         catch (rewriter_exception & ex) {
-            throw tactic_exception(ex.msg());
+            throw tactic_exception(ex.what());
         }
     }
     

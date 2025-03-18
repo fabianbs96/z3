@@ -49,7 +49,7 @@ sort * array_decl_plugin::mk_sort(decl_kind k, unsigned num_parameters, paramete
             m_manager->raise_exception("invalid array sort definition, invalid number of parameters");
             return nullptr;
         }
-        parameter params[2] = { parameters[0], parameter(m_manager->mk_bool_sort()) };
+        parameter params[2] = { parameter(parameters[0]), parameter(m_manager->mk_bool_sort()) };
         return mk_sort(ARRAY_SORT, 2, params);
     }
     SASSERT(k == ARRAY_SORT);
@@ -122,7 +122,7 @@ bool array_decl_plugin::is_array_sort(sort* s) const {
 
 func_decl * array_decl_plugin::mk_const(sort * s, unsigned arity, sort * const * domain) {
     if (arity != 1) {
-        m_manager->raise_exception("invalid const array definition, invalid domain size");
+        m_manager->raise_exception("invalid const array definition, expected one argument");
         return nullptr;
     }
     if (!is_array_sort(s)) {
@@ -315,13 +315,13 @@ func_decl * array_decl_plugin::mk_store(unsigned arity, sort * const * domain) {
 
 func_decl * array_decl_plugin::mk_array_ext(unsigned arity, sort * const * domain, unsigned i) {
     if (arity != 2 || domain[0] != domain[1]) {
-        UNREACHABLE();
+        m_manager->raise_exception("incorrect arguments passed to array-ext");        
         return nullptr;
     }
     sort * s = domain[0];
     unsigned num_parameters = s->get_num_parameters();
     if (num_parameters == 0 || i >= num_parameters - 1) {
-        UNREACHABLE();
+        m_manager->raise_exception("incorrect arguments passed to array-ext");        
         return nullptr;
     }
     sort * r = to_sort(s->get_parameter(i).get_ast());
@@ -529,19 +529,6 @@ func_decl * array_decl_plugin::mk_func_decl(decl_kind k, unsigned num_parameters
             return nullptr;
         }
         return mk_array_ext(arity, domain, parameters[0].get_int());
-    case OP_ARRAY_MAXDIFF:
-    case OP_ARRAY_MINDIFF: {
-        if (num_parameters != 0)
-            m_manager->raise_exception("min/maxdiff don't take any parameters");
-        if (arity != 2 || domain[0] != domain[1] || !is_array_sort(domain[0]) || 1 != get_array_arity(domain[0]))
-            m_manager->raise_exception("min/maxdiff don't take two arrays of same sort and with integer index");
-        sort* idx = get_array_domain(domain[0], 0);
-        arith_util arith(*m_manager);
-        if (!arith.is_int(idx))
-            m_manager->raise_exception("min/maxdiff take integer index domain");
-        return m_manager->mk_func_decl(k == OP_ARRAY_MAXDIFF ? symbol("maxdiff") : symbol("mindiff"), 
-                                       arity, domain, arith.mk_int(), func_decl_info(m_family_id, k));
-    }
     case OP_ARRAY_DEFAULT:
         return mk_default(arity, domain);
     case OP_SET_UNION:
@@ -590,9 +577,9 @@ void array_decl_plugin::get_sort_names(svector<builtin_name>& sort_names, symbol
 void array_decl_plugin::get_op_names(svector<builtin_name>& op_names, symbol const & logic) {
     op_names.push_back(builtin_name("store",OP_STORE));
     op_names.push_back(builtin_name("select",OP_SELECT));
+    op_names.push_back(builtin_name("const",OP_CONST_ARRAY)); // github issue #7383
     if (logic == symbol::null || logic == symbol("HORN") || logic == symbol("ALL")) {
         // none of the SMT2 logics support these extensions
-        op_names.push_back(builtin_name("const",OP_CONST_ARRAY));
         op_names.push_back(builtin_name("map",OP_ARRAY_MAP));
         op_names.push_back(builtin_name("default",OP_ARRAY_DEFAULT));
         op_names.push_back(builtin_name("union",OP_SET_UNION));
@@ -602,9 +589,6 @@ void array_decl_plugin::get_op_names(svector<builtin_name>& op_names, symbol con
         op_names.push_back(builtin_name("subset",OP_SET_SUBSET));
         op_names.push_back(builtin_name("as-array", OP_AS_ARRAY));
         op_names.push_back(builtin_name("array-ext", OP_ARRAY_EXT));
-
-        op_names.push_back(builtin_name("mindiff", OP_ARRAY_MINDIFF));
-        op_names.push_back(builtin_name("maxdiff", OP_ARRAY_MAXDIFF));
 
 #if 0
         op_names.push_back(builtin_name("set-has-size", OP_SET_HAS_SIZE));
@@ -647,6 +631,12 @@ bool array_decl_plugin::is_value(app * _e) const {
         }
         return false;
     }
+}
+
+bool array_decl_plugin::is_unique_value(app* _e) const {
+    array_util u(*m_manager);
+    expr* e = _e;
+    return u.is_const(e, e) && m_manager->is_unique_value(e);
 }
 
 

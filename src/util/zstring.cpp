@@ -78,7 +78,7 @@ zstring::zstring(char const* s) {
             m_buffer.push_back(ch);
         }
         else {
-            m_buffer.push_back(*s);
+            m_buffer.push_back((unsigned char)*s);
             ++s;
         }
     }
@@ -152,7 +152,7 @@ std::string zstring::encode() const {
         unsigned ch = m_buffer[i];
         if (ch < 32 || ch >= 128 || ('\\' == ch && i + 1 < m_buffer.size() && 'u' == m_buffer[i+1])) {
             _flush();
-            strm << "\\u{" << std::hex << ch << std::dec << "}";
+            strm << "\\u{" << std::hex << ch << std::dec << '}';
         }
         else {
             if (offset == 99)  
@@ -161,7 +161,7 @@ std::string zstring::encode() const {
         }
     }
     _flush();
-    return strm.str();
+    return std::move(strm).str();
 }
 
 bool zstring::suffixof(zstring const& other) const {

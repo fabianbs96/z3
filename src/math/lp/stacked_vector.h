@@ -25,7 +25,7 @@ template < typename B> class stacked_vector {
     struct log_entry { 
         unsigned m_i; unsigned m_ts; B b;
         log_entry(unsigned i, unsigned t, B const& b): m_i(i), m_ts(t), b(b) {}
-        log_entry():m_i(UINT_MAX), m_ts(0) {}
+        log_entry():m_i(UINT_MAX), m_ts(0), b() {}
     };
     svector<unsigned> m_stack_of_vector_sizes;
     svector<unsigned> m_stack_of_change_sizes;
@@ -51,10 +51,21 @@ public:
         operator const B&() const {
             return m_vec.m_vector[m_i];
         }
-        
+
         bool operator==(B const& other) const {
             return m_vec.m_vector[m_i] == other;
         }
+        bool operator!=(B const& other) const {
+            return m_vec.m_vector[m_i] != other;
+        }
+        bool operator==(ref const& other) const {
+            return m_vec.m_vector[m_i] == other.m_vec.m_vector[other.m_i];
+        }
+        bool operator!=(ref  const& other) const {
+            return m_vec.m_vector[m_i] != other.m_vec.m_vector[other.m_i];
+        }
+
+
         B& operator+=(B const &delta) {
             // not tracking the change here!
             return m_vec.m_vector[m_i] += delta;
@@ -71,12 +82,16 @@ public:
     public:
         ref_const(const stacked_vector<B> &m, unsigned key) :m_vec(m), m_i(key) {
             lp_assert(key < m.size());
-        }
- 
+        } 
         operator const B&() const {
             return m_vec.m_vector[m_i];
         }
-
+        bool operator==(ref_const const& other) const {
+            return m_vec.m_vector[m_i] == other.m_vec.m_vector[other.m_i];
+        }
+        bool operator!=(ref_const const& other) const {
+            return m_vec.m_vector[m_i] != other.m_vec.m_vector[other.m_i];
+        }
     };
 
 private:
@@ -95,9 +110,6 @@ private:
         }
     }
 public:
-
-    stacked_vector() { }
-
     ref operator[] (unsigned a) {
         return ref(*this, a);
     }

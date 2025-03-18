@@ -29,7 +29,7 @@ class explanation {
     vector<std::pair<constraint_index, mpq>> m_vector;
     ci_set  m_set;   
 public:
-    explanation() {}
+    explanation() = default;
     
     template <typename T>
     explanation(const T& t) {
@@ -47,6 +47,15 @@ public:
     void push_back(constraint_index j) {
         SASSERT(m_vector.empty());
         m_set.insert(j);
+    }
+
+    void remove(constraint_index j) {
+        m_set.remove(j);
+        unsigned i = 0;
+        for (auto& p : m_vector) 
+            if (p.first != j)
+                m_vector[i++] = p;
+        m_vector.shrink(i);
     }
     
     void add_expl(const explanation& e) {
@@ -97,11 +106,10 @@ public:
         iterator(bool run_on_vector, pair_vec::const_iterator vi, ci_set::iterator cii) :
             m_run_on_vector(run_on_vector), m_vi(vi), m_ci(cii)
         {}
-        bool operator==(const iterator &other) const {
+        bool operator!=(const iterator &other) const {
             SASSERT(m_run_on_vector == other.m_run_on_vector);
-            return  m_run_on_vector? m_vi == other.m_vi : m_ci == other.m_ci;
+            return  m_run_on_vector ? m_vi != other.m_vi : m_ci != other.m_ci;
         }
-        bool operator!=(const iterator &other) const { return !(*this == other); }
     };
 
     iterator begin() const {
@@ -112,4 +120,18 @@ public:
     }
 
 };
+
+    struct equality {
+        lp::lpvar i, j;
+        lp::explanation e;
+        equality(lp::lpvar i, lp::lpvar j, lp::explanation const& e):i(i),j(j),e(e) {}
+    };
+    
+    struct fixed_equality {
+        lp::lpvar v;
+        rational       k;
+        lp::explanation e;
+        fixed_equality(lp::lpvar v, rational const& k, lp::explanation const& e):v(v),k(k),e(e) {}
+    };
+
 }

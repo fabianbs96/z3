@@ -20,11 +20,14 @@ Revision History:
 
 #include "util/debug.h"
 #include "util/memory_manager.h"
-#include<ostream>
-#include<climits>
-#include<limits>
-#include<stdint.h>
+#include <ostream>
+#include <climits>
+#include <limits>
+#include <stdint.h>
 #include <string>
+#include <functional>
+#include <algorithm>
+#include <iterator>
 
 #ifndef SIZE_MAX
 #define SIZE_MAX std::numeric_limits<std::size_t>::max()
@@ -103,6 +106,7 @@ unsigned uint64_log2(uint64_t v);
 static_assert(sizeof(unsigned) == 4, "unsigned are 32 bits");
 
 // Return the number of 1 bits in v.
+// see e.g. http://en.wikipedia.org/wiki/Hamming_weight
 static inline unsigned get_num_1bits(unsigned v) {
 #ifdef __GNUC__
     return __builtin_popcount(v);
@@ -119,6 +123,26 @@ static inline unsigned get_num_1bits(unsigned v) {
     unsigned r = (((v + (v >> 4)) & 0xF0F0F0F) * 0x1010101) >> 24; 
     SASSERT(c == r);
     return r;
+#endif
+}
+
+static inline unsigned get_num_1bits(uint64_t v) {
+#ifdef __GNUC__
+    return __builtin_popcountll(v);
+#else
+#ifdef Z3DEBUG
+    unsigned c;
+    uint64_t v1 = v;
+    for (c = 0; v1; c++) {
+        v1 &= v1 - 1; 
+    }
+#endif
+    v = v - (v >> 1) & 0x5555555555555555;
+    v = (v & 0x3333333333333333) + ((v >> 2) & 0x3333333333333333); 
+    v = (v + (v >> 4)) & 0x0F0F0F0F0F0F0F0F;
+    uint64_t r = (v * 0x0101010101010101) >> 56;
+    SASSERT(c == r);
+    return static_cast<unsigned>(r);
 #endif
 }
 
@@ -159,9 +183,8 @@ void display(std::ostream & out, const IT & begin, const IT & end, const char * 
 template<typename T>
 struct delete_proc {
     void operator()(T * ptr) { 
-    if (ptr) {
-        dealloc(ptr);
-    }
+    if (ptr) 
+        dealloc(ptr);    
     }
 };
 
@@ -243,7 +266,7 @@ public:
         return *this;
     }
 
-    scoped_ptr& operator=(scoped_ptr&& other) {
+    scoped_ptr& operator=(scoped_ptr&& other) noexcept {
         *this = other.detach();
         return *this;
     };
@@ -254,7 +277,7 @@ public:
         return tmp;
     }
 
-    void swap(scoped_ptr & p) {
+    void swap(scoped_ptr & p) noexcept {
         std::swap(m_ptr, p.m_ptr);
     }
 };
@@ -303,6 +326,16 @@ void force_ptr_array_size(T & v, unsigned sz) {
     }
 }
 
+template<typename T>
+class ptr_iterator {
+    T const* b;
+    T const* e;
+public:
+    ptr_iterator(T const* b, T const* e): b(b), e(e) {}
+    T const* begin() const { return b; }
+    T const* end() const { return e; }
+};
+
 class random_gen {
     unsigned m_data;
 public:
@@ -340,6 +373,46 @@ void fatal_error(int error_code);
 void set_fatal_error_handler(void (*pfn)(int error_code));
 
 
+template<typename S, typename T>
+bool any_of(S const& set, T const& p) {
+    for (auto const& s : set)
+        if (p(s))
+            return true;
+    return false;
+}
+
+template<typename S, typename T>
+bool all_of(S const& set, T const& p) {
+    for (auto const& s : set)
+        if (!p(s))
+            return false;
+    return true;
+}
+template<typename S, typename T>
+void filter(S& v, T const& p) {
+    unsigned i = 0;
+    for (auto const& e: v)
+        if (p(e))
+            v[i++] = e;
+    v.shrink(i);
+}
+
+template<typename S, typename T>
+bool xor_of(S const& set, T const& p) {
+    bool r = false;
+    for (auto const& s : set)
+        r ^= p(s);
+    return r;
+}
+
+template<typename S, typename R>
+R find(S const& set, std::function<bool(R)> p) {
+    for (auto const& s : set)
+        if (p(s))
+            return s;
+    throw default_exception("element not found");
+}
+
 /**
    \brief Iterator for the [0..sz[0]) X [0..sz[1]) X ... X [0..sz[n-1]).
    it contains the current value.
@@ -374,3 +447,36 @@ inline size_t megabytes_to_bytes(unsigned mb) {
         r = SIZE_MAX;    
     return r;
 }
+
+/** Compact version of std::count */
+template <typename Container, typename Item>
+std::size_t count(Container const& c, Item x)
+{
+    using std::begin, std::end;  // allows begin(c) to also find c.begin()
+    return std::count(begin(c), end(c), std::forward<Item>(x));
+}
+
+/** Compact version of std::count_if */
+template <typename Container, typename Predicate>
+std::size_t count_if(Container const& c, Predicate p)
+{
+    using std::begin, std::end;  // allows begin(c) to also find c.begin()
+    return std::count_if(begin(c), end(c), std::forward<Predicate>(p));
+}
+
+/** Basic version of https://en.cppreference.com/w/cpp/experimental/scope_exit */
+template <typename Callable>
+class on_scope_exit final {
+    Callable m_ef;
+public:
+    on_scope_exit(Callable&& ef)
+        : m_ef(std::forward<Callable>(ef))
+    { }
+    ~on_scope_exit() {
+        m_ef();
+    }
+};
+
+/** Helper type for std::visit, see examples on https://en.cppreference.com/w/cpp/utility/variant/visit */
+template <typename T>
+struct always_false : std::false_type {};

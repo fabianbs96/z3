@@ -225,7 +225,9 @@ class psort_app : public psort {
             sort * a = m_args[i]->instantiate(m, n, s);
             args_i.push_back(a);
         }
-        r = m_decl->instantiate(m, args_i.size(), args_i.data());        
+        r = m_decl->instantiate(m, args_i.size(), args_i.data());  
+        if (m_num_params != n)
+            throw default_exception("mismatch between number of declared and supplied sort parameters");
         cache(m, s, r);
         return r;
     }
@@ -346,6 +348,26 @@ std::ostream& psort_user_decl::display(std::ostream & out) const {
     if (m_def)
         m_def->display(out);
     return out << ")";
+}
+
+// -------------------
+// psort_type_var_decl
+
+psort_type_var_decl::psort_type_var_decl(unsigned id, pdecl_manager & m, symbol const & n):
+    psort_decl(id, 0, m, n) {
+    m_psort_kind = PSORT_TV;
+}
+
+void psort_type_var_decl::finalize(pdecl_manager & m) {
+    psort_decl::finalize(m);
+}
+
+sort * psort_type_var_decl::instantiate(pdecl_manager & m, unsigned n, sort * const * s) {
+    return m.m().mk_type_var(m_name);
+}
+
+std::ostream& psort_type_var_decl::display(std::ostream & out) const {
+    return out << "(declare-type-var " << m_name << ")";
 }
 
 // -------------------
@@ -751,6 +773,7 @@ bool pdatatypes_decl::commit(pdecl_manager& m) {
         for (unsigned i = 0; i < d->get_num_params(); ++i) {
             ps.push_back(m.m().mk_uninterpreted_sort(symbol(i), 0, nullptr));
         }        
+
         dts.m_buffer.push_back(d->instantiate_decl(m, ps.size(), ps.data()));
     }
     sort_ref_vector sorts(m.m());
@@ -785,7 +808,7 @@ struct pdecl_manager::sort_info {
     virtual unsigned obj_size() const { return sizeof(sort_info); }
     virtual void finalize(pdecl_manager & m) { m.dec_ref(m_decl); }
     virtual void display(std::ostream & out, pdecl_manager const & m) const = 0;
-    virtual format * pp(pdecl_manager const & m) const = 0;
+    virtual format * pp(smt2_pp_environment& env, pdecl_manager const & m) const = 0;
 };
 
 struct pdecl_manager::app_sort_info : public pdecl_manager::sort_info {
@@ -817,15 +840,19 @@ struct pdecl_manager::app_sort_info : public pdecl_manager::sort_info {
         }
     }
 
-    format * pp(pdecl_manager const & m) const override {
+    format * pp(smt2_pp_environment& env, pdecl_manager const & m) const override {
+        symbol s = m_decl->get_name();
+        std::string name = s.str();
+        if (is_smt2_quoted_symbol(s))
+            name = mk_smt2_quoted_symbol(s);
         if (m_args.empty()) {
-            return mk_string(m.m(), m_decl->get_name().str());
+            return mk_string(m.m(), name);            
         }
         else {
             ptr_buffer<format> b;
             for (auto arg : m_args)
-                b.push_back(m.pp(arg));
-            return mk_seq1(m.m(), b.begin(), b.end(), f2f(), m_decl->get_name().str());
+                b.push_back(m.pp(env, arg));
+            return mk_seq1(m.m(), b.begin(), b.end(), f2f(), name);
         }
     }
 };
@@ -853,13 +880,18 @@ struct pdecl_manager::indexed_sort_info : public pdecl_manager::sort_info {
         }
     }
 
-    format * pp(pdecl_manager const & m) const override {
+    format * pp(smt2_pp_environment& env, pdecl_manager const & m) const override {
+        symbol s = m_decl->get_name();
+        std::string name = s.str();
+        if (is_smt2_quoted_symbol(s))
+            name = mk_smt2_quoted_symbol(s);
+
         if (m_indices.empty()) {
-            return mk_string(m.m(), m_decl->get_name().str());
+            return mk_string(m.m(), name);
         }
         else {
             ptr_buffer<format> b;
-            b.push_back(mk_string(m.m(), m_decl->get_name().str()));
+            b.push_back(mk_string(m.m(), name));
             for (auto idx : m_indices)
                 b.push_back(mk_unsigned(m.m(), idx));
             return mk_seq1(m.m(), b.begin(), b.end(), f2f(), "_");
@@ -969,6 +1001,10 @@ psort_decl * pdecl_manager::mk_psort_dt_decl(unsigned num_params, symbol const &
     return new (a().allocate(sizeof(psort_dt_decl))) psort_dt_decl(m_id_gen.mk(), num_params, *this, n);    
 }
 
+psort_decl * pdecl_manager::mk_psort_type_var_decl(symbol const & n) {
+    return new (a().allocate(sizeof(psort_type_var_decl))) psort_type_var_decl(m_id_gen.mk(), *this, n);    
+}
+
 
 psort_decl * pdecl_manager::mk_psort_builtin_decl(symbol const & n, family_id fid, decl_kind k) {
     return new (a().allocate(sizeof(psort_builtin_decl))) psort_builtin_decl(m_id_gen.mk(), *this, n, fid, k);
@@ -1072,27 +1108,10 @@ void pdecl_manager::display(std::ostream & out, sort * s) const {
     out << s->get_name();
 }
 
-format * pdecl_manager::pp(sort * s) const {
+format * pdecl_manager::pp(smt2_pp_environment& env, sort * s) const {
     sort_info * info = nullptr;
-    if (m_sort2info.find(s, info)) {
-        return info->pp(*this);
-    }
-    unsigned num_params = s->get_num_parameters();
-    if (s->get_family_id() != null_family_id && num_params > 0) {
-        // Small hack to display FP and BitVec sorts that were not explicitly referenced by the user.
-        unsigned i = 0;
-        for (i = 0; i < num_params; i++) {
-            if (!s->get_parameter(i).is_int())
-                break;
-        }
-        if (i == num_params) {
-            // all parameters are integer
-            ptr_buffer<format> b;
-            b.push_back(mk_string(m(), s->get_name().str()));
-            for (unsigned i = 0; i < num_params; i++)
-                b.push_back(mk_unsigned(m(), s->get_parameter(i).get_int()));
-            return mk_seq1(m(), b.begin(), b.end(), f2f(), "_");
-        }
-    }
-    return mk_string(m(), s->get_name().str());
+    if (m_sort2info.find(s, info)) 
+        return info->pp(env, *this);
+    else
+        return nullptr;
 }

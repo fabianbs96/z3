@@ -153,12 +153,49 @@ public:
         pdd b = m.mk_var(1);
         pdd c = m.mk_var(2);
         pdd d = m.mk_var(3);
-        pdd p = (a + b)*(c + 3*d) + 2;
-        std::cout << p << "\n";
-        for (auto const& m : p) {
-            std::cout << m << "\n";
-        }
+
+        auto const check = [](unsigned const expected_num_monomials, pdd const& p) {
+            unsigned count = 0;
+            std::cout << p << "\n";
+            for (auto const& m : p) {
+                std::cout << "  " << m << "\n";
+                ++count;
+            }
+            VERIFY_EQ(expected_num_monomials, count);
+        };
+
+        check(9, (a + b + 2)*(c + 3*d + 5) + 2);
+        check(5, (a + b)*(c + 3*d) + 2);
+        check(1, a);
+        check(2, a + 5);
+        check(1, m.mk_val(5));
+        check(0, m.mk_val(0));
     }
+
+    static void linear_iterator() {
+        std::cout << "test linear iterator\n";
+        pdd_manager m(4);
+        pdd a = m.mk_var(0);
+        pdd b = m.mk_var(1);
+        pdd c = m.mk_var(2);
+        pdd d = m.mk_var(3);
+        pdd p = (a + b + 2)*(c + 3*d + 5) + 2;
+        std::cout << p << "\n";
+        for (auto const& m : p.linear_monomials())
+            std::cout << "  " << m << "\n";
+        std::cout << a << "\n";
+        for (auto const& m : a.linear_monomials())
+            std::cout << "  " << m << "\n";
+        pdd one = m.mk_val(5);
+        std::cout << one << "\n";
+        for (auto const& m : one.linear_monomials())
+            std::cout << "  " << m << "\n";
+        pdd zero = m.mk_val(0);
+        std::cout << zero << "\n";
+        for (auto const& m : zero.linear_monomials())
+            std::cout << "  " << m << "\n";
+    }
+
     static void order() {
         std::cout << "order\n";
         pdd_manager m(4);
@@ -571,6 +608,38 @@ public:
         }
     }
 
+    static void subst_get() {
+        std::cout << "subst_get\n";
+        pdd_manager m(4, pdd_manager::mod2N_e, 32);
+
+        unsigned const va = 0;
+        unsigned const vb = 1;
+        unsigned const vc = 2;
+        unsigned const vd = 3;
+
+        rational val;
+        pdd s = m.one();
+        std::cout << s << "\n";
+        VERIFY(!s.subst_get(va, val));
+        VERIFY(!s.subst_get(vb, val));
+        VERIFY(!s.subst_get(vc, val));
+        VERIFY(!s.subst_get(vd, val));
+
+        s = s.subst_add(va, rational(5));
+        std::cout << s << "\n";
+        VERIFY(s.subst_get(va, val) && val == 5);
+        VERIFY(!s.subst_get(vb, val));
+        VERIFY(!s.subst_get(vc, val));
+        VERIFY(!s.subst_get(vd, val));
+
+        s = s.subst_add(vc, rational(7));
+        std::cout << s << "\n";
+        VERIFY(s.subst_get(va, val) && val == 5);
+        VERIFY(!s.subst_get(vb, val));
+        VERIFY(s.subst_get(vc, val) && val == 7);
+        VERIFY(!s.subst_get(vd, val));
+    }
+
     static void univariate() {
         std::cout << "univariate\n";
         pdd_manager m(4, pdd_manager::mod2N_e, 4);
@@ -661,6 +730,7 @@ void tst_pdd() {
     dd::test::canonize();
     dd::test::reset();
     dd::test::iterator();
+    dd::test::linear_iterator();
     dd::test::order();
     dd::test::order_lm();
     dd::test::mod4_operations();
@@ -671,6 +741,7 @@ void tst_pdd() {
     dd::test::binary_resolve();
     dd::test::pow();
     dd::test::subst_val();
+    dd::test::subst_get();
     dd::test::univariate();
     dd::test::factors();
 }

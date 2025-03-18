@@ -52,22 +52,19 @@ namespace opt {
         if (m_params.m_case_split_strategy == CS_ACTIVITY_DELAY_NEW) {            
             m_params.m_relevancy_lvl = 0;
         }
-        m_params.m_arith_auto_config_simplex = false;
+        m_params.m_arith_auto_config_simplex = true;
         m_params.m_threads = 1; // need to interact with the solver that created model so can't have threads
         // m_params.m_auto_config = false;
     }
 
     unsigned opt_solver::m_dump_count = 0;
-    
-    opt_solver::~opt_solver() {
-    }
 
     void opt_solver::updt_params(params_ref const & _p) {
         opt_params p(_p);
         m_dump_benchmarks = p.dump_benchmarks();
         m_params.updt_params(_p);
         m_context.updt_params(_p);
-        m_params.m_arith_auto_config_simplex = false;
+        m_params.m_arith_auto_config_simplex = true;
     }
 
     solver* opt_solver::translate(ast_manager& m, params_ref const& p) {
@@ -244,6 +241,7 @@ namespace opt {
         smt::theory_var v = m_objective_vars[i];
         bool has_shared = false;
         m_last_model = nullptr;
+        blocker = nullptr;
         //
         // compute an optimization hint.
         // The hint is valid if there are no shared symbols (a pure LP).
@@ -259,8 +257,10 @@ namespace opt {
         if (!m_models[i]) 
             m_models.set(i, m_last_model.get());
 
-        if (val > m_objective_values[i])
-            m_objective_values[i] = val;    
+        TRACE("opt", tout << "maximize " << i << " " << val << " " << m_objective_values[i] << " " << blocker << "\n";);
+        if (val > m_objective_values[i]) {
+            m_objective_values[i] = val;
+        }
 
         if (!m_last_model)
             return true;
@@ -284,12 +284,7 @@ namespace opt {
         // 
         auto check_bound = [&]() {
             SASSERT(has_shared);
-            bool ok = bound_value(i, val);
-            if (l_true != m_context.check(0, nullptr))  
-                return false;
-            m_context.get_model(m_last_model);   
-            update_objective();
-            return ok;
+            return bound_value(i, val) && l_true == m_context.check(0, nullptr);
         };
 
         if (!val.is_finite()) {
@@ -299,7 +294,9 @@ namespace opt {
             TRACE("opt", tout << "updated\n";);
             m_last_model = nullptr;
             m_context.get_model(m_last_model);
-            if (!has_shared || val == current_objective_value(i))
+            if (!m_last_model)
+                return false;
+            else if (!has_shared || val == current_objective_value(i))
                 m_models.set(i, m_last_model.get());
             else if (!check_bound())
                 return false;
@@ -365,7 +362,7 @@ namespace opt {
         m = m_last_model.get();
     }
     
-    proof * opt_solver::get_proof() {
+    proof * opt_solver::get_proof_core() {
         return m_context.get_proof();
     }
     

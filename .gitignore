@@ -6,12 +6,21 @@ rebase.cmd
 callgrind.out.*
 # .hpp files are automatically generated
 *.hpp
+.env
 .z3-trace
+.env
+.genaiscript
+package-lock.json
+package.json
+node_modules
 # OCaml generated files
 *.a
+*.o
 *.cma
 *.cmo
 *.cmi
+*.cmx
+*.byte
 *.cmxa
 ocamlz3
 # Java generated files
@@ -20,8 +29,11 @@ ocamlz3
 # Emacs temp files
 \#*\#
 # Directories with generated code and documentation
+node_modules/*
+.genaiscript/*
 release/*
 build/*
+trace/*
 build-dist/*
 dist/*
 src/out/*
@@ -81,6 +93,8 @@ src/api/js/node_modules/
 src/api/js/build/
 src/api/js/**/*.__GENERATED__.*
 debug/*
+examples/python/z3
+examples/python/libz3.dll
 
 out/**
 *.bak
@@ -93,3 +107,5 @@ CMakeSettings.json
 *.swp
 .DS_Store
 dbg/**
+*.wsp
+CppProperties.json

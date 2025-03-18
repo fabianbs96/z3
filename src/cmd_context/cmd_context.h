@@ -33,7 +33,8 @@ Notes:
 #include "ast/datatype_decl_plugin.h"
 #include "ast/recfun_decl_plugin.h"
 #include "ast/rewriter/seq_rewriter.h"
-#include "tactic/generic_model_converter.h"
+#include "ast/rewriter/var_subst.h"
+#include "ast/converters/generic_model_converter.h"
 #include "solver/solver.h"
 #include "solver/check_logic.h"
 #include "solver/progress_callback.h"
@@ -47,7 +48,7 @@ class func_decls {
     bool signatures_collide(func_decl* f, func_decl* g) const;
     bool signatures_collide(unsigned n, sort*const* domain, sort* range, func_decl* g) const;
 public:
-    func_decls() {}
+    func_decls() = default;
     func_decls(ast_manager & m, func_decl * f);
     void finalize(ast_manager & m);
     bool contains(func_decl * f) const;
@@ -58,11 +59,12 @@ public:
     bool clash(func_decl * f) const;
     bool empty() const { return m_decls == nullptr; }
     func_decl * first() const;
-    func_decl * find(ast_manager & m, unsigned arity, sort * const * domain, sort * range) const;
-    func_decl * find(ast_manager & m, unsigned arity, expr * const * args, sort * range) const;
+    func_decl * find(ast_manager & m, unsigned arity, sort * const * domain, sort * range);
+    func_decl * find(ast_manager & m, unsigned arity, expr * const * args, sort * range);
     unsigned get_num_entries() const;
     func_decl * get_entry(unsigned inx);
     bool check_signature(ast_manager& m, func_decl* f, unsigned arityh, sort * const* domain, sort * range, bool& coerced) const;
+    bool check_poly_signature(ast_manager& m, func_decl* f, unsigned arity, sort* const* domain, sort* range, func_decl*& g);
 };
 
 struct macro_decl {
@@ -96,8 +98,10 @@ public:
     virtual ~proof_cmds() {}
     virtual void add_literal(expr* e) = 0;
     virtual void end_assumption() = 0;
-    virtual void end_learned() = 0;
+    virtual void end_infer() = 0;
     virtual void end_deleted() = 0;
+    virtual void updt_params(params_ref const& p) = 0;
+    virtual void register_on_clause(void* ctx, user_propagator::on_clause_eh_t& on_clause) = 0;
 };
 
 
@@ -159,6 +163,7 @@ struct builtin_decl {
 
 class opt_wrapper : public check_sat_result {
 public:
+    opt_wrapper(ast_manager& m): check_sat_result(m) {}
     virtual bool empty() = 0;
     virtual void push() = 0;
     virtual void pop(unsigned n) = 0;
@@ -169,6 +174,8 @@ public:
     virtual void set_logic(symbol const& s) = 0;
     virtual void get_box_model(model_ref& mdl, unsigned index) = 0;
     virtual void updt_params(params_ref const& p) = 0;
+    virtual void initialize_value(expr* var, expr* value) = 0;
+
 };
 
 class ast_context_params : public context_params { 
@@ -256,6 +263,7 @@ protected:
     scoped_ptr_vector<builtin_decl> m_extra_builtin_decls; // make sure that dynamically allocated builtin_decls are deleted
     dictionary<object_ref*>      m_object_refs; // anything that can be named.
     dictionary<sexpr*>           m_user_tactic_decls;
+    vector<std::pair<expr_ref, expr_ref>> m_var2values;
 
     dictionary<func_decls>       m_func_decls;
     obj_map<func_decl, symbol>   m_func_decl2alias;
@@ -273,6 +281,7 @@ protected:
     ptr_vector<expr>             m_assertions;
     std::vector<std::string>     m_assertion_strings;
     ptr_vector<expr>             m_assertion_names; // named assertions are represented using boolean variables.
+    scoped_ptr<var_subst>        m_std_subst, m_rev_subst;
 
     struct scope {
         unsigned m_func_decls_stack_lim;
@@ -298,7 +307,6 @@ protected:
     public:
         void reset() { m_dt_util.reset(); }
         dt_eh(cmd_context & owner);
-        ~dt_eh() override;
         void operator()(sort * dt, pdecl* pd) override;
     };
 
@@ -311,11 +319,14 @@ protected:
     scoped_ptr<pp_env>            m_pp_env;
     pp_env & get_pp_env() const;
 
+    var_subst& std_subst() { if (!m_std_subst) m_std_subst = alloc(var_subst, m(), true); return *m_std_subst; }
+    var_subst& rev_subst() { if (!m_rev_subst) m_rev_subst = alloc(var_subst, m(), false); return *m_rev_subst; }
+
     void register_builtin_sorts(decl_plugin * p);
     void register_builtin_ops(decl_plugin * p);
     void load_plugin(symbol const & name, bool install_names, svector<family_id>& fids);
     void init_manager_core(bool new_manager);
-    void init_manager();
+
     void init_external_manager();
     void reset_cmds();
     void finalize_cmds();
@@ -352,7 +363,7 @@ protected:
     bool contains_macro(symbol const& s, unsigned arity, sort *const* domain) const;
     void insert_macro(symbol const& s, unsigned arity, sort*const* domain, expr* t);
     void erase_macro(symbol const& s);
-    bool macros_find(symbol const& s, unsigned n, expr*const* args, expr_ref_vector& coerced_args, expr*& t) const;
+    bool macros_find(symbol const& s, unsigned n, expr*const* args, expr_ref_vector& coerced_args, expr_ref& t);
 
     recfun::decl::plugin& get_recfun_plugin();
 
@@ -411,7 +422,11 @@ public:
     sexpr_manager & sm() const { if (!m_sexpr_manager) const_cast<cmd_context*>(this)->m_sexpr_manager = alloc(sexpr_manager); return *m_sexpr_manager; }
 
     proof_cmds* get_proof_cmds() { return m_proof_cmds.get(); }
+    void init_manager();
+    solver* get_solver() { return m_solver.get(); }
+    void set_solver(solver* s) { m_solver = s; }
     void set_proof_cmds(proof_cmds* pc) { m_proof_cmds = pc; }
+    void set_initial_value(expr* var, expr* value);
 
     void set_solver_factory(solver_factory * s);
     void set_check_sat_result(check_sat_result * r) { m_check_sat_result = r; }
@@ -443,22 +458,22 @@ public:
     void insert_rec_fun(func_decl* f, expr_ref_vector const& binding, svector<symbol> const& ids, expr* e);
     func_decl * find_func_decl(symbol const & s) const;
     func_decl * find_func_decl(symbol const & s, unsigned num_indices, unsigned const * indices,
-                               unsigned arity, sort * const * domain, sort * range) const;
+                               unsigned arity, sort * const * domain, sort * range);
     recfun::promise_def decl_rec_fun(const symbol &name, unsigned int arity, sort *const *domain, sort *range);
     psort_decl * find_psort_decl(symbol const & s) const;
     cmd * find_cmd(symbol const & s) const;
     sexpr * find_user_tactic(symbol const & s) const;
     object_ref * find_object_ref(symbol const & s) const;
-    void mk_const(symbol const & s, expr_ref & result) const;
+    void mk_const(symbol const & s, expr_ref & result);
     void mk_app(symbol const & s, unsigned num_args, expr * const * args, unsigned num_indices, parameter const * indices, sort * range,
-                expr_ref & r) const;
+                expr_ref & r);
     bool try_mk_macro_app(symbol const & s, unsigned num_args, expr * const * args, unsigned num_indices, parameter const * indices, sort * range,
-                expr_ref & r) const;
+                expr_ref & r);
     bool try_mk_builtin_app(symbol const & s, unsigned num_args, expr * const * args, unsigned num_indices, parameter const * indices, sort * range,
                 expr_ref & r) const;
     bool try_mk_declared_app(symbol const & s, unsigned num_args, expr * const * args, 
                              unsigned num_indices, parameter const * indices, sort * range,
-                             func_decls& fs, expr_ref & result) const;
+                             expr_ref & result);
     bool try_mk_pdecl_app(symbol const & s, unsigned num_args, expr * const * args, unsigned num_indices, parameter const * indices, expr_ref & r) const;
     void erase_cmd(symbol const & s);
     void erase_func_decl(symbol const & s);
@@ -491,6 +506,7 @@ public:
     void display_assertions();
     void display_statistics(bool show_total_time = false, double total_time = 0.0);
     void display_dimacs();
+    void display_parameters(std::ostream& out);
     void reset(bool finalize = false);
     void assert_expr(expr * t);
     void assert_expr(symbol const & name, expr * t);
@@ -517,7 +533,7 @@ public:
 
     ptr_vector<expr> const& assertions() const { return m_assertions; }
     ptr_vector<expr> const& assertion_names() const { return m_assertion_names; }
-    expr_ref_vector tracked_assertions();
+    vector<std::pair<expr*,expr*>> tracked_assertions();
     void reset_tracked_assertions();
 
     /**
@@ -532,6 +548,7 @@ public:
     }
 
     format_ns::format * pp(sort * s) const;
+    format_ns::format* try_pp(sort* s) const;
     void pp(sort * s, format_ns::format_ref & r) const override { r = pp(s); }
     void pp(func_decl * f, format_ns::format_ref & r) const override;
     void pp(expr * n, unsigned num_vars, char const * var_prefix, format_ns::format_ref & r, sbuffer<symbol> & var_names) const override;

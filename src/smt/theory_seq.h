@@ -134,7 +134,6 @@ namespace smt {
             unsigned_vector                   m_limit;
         public:
             exclusion_table(ast_manager& m): m(m), m_lhs(m), m_rhs(m) {}
-            ~exclusion_table() { }
             bool empty() const { return m_table.empty(); }
             void update(expr* e, expr* r);
             bool contains(expr* e, expr* r) const;
@@ -328,6 +327,7 @@ namespace smt {
         scoped_vector<ne>          m_nqs;        // set of current disequalities.
         scoped_vector<nc>          m_ncs;        // set of non-contains constraints.
         scoped_vector<expr*>       m_lts;        // set of asserted str.<, str.<= literals
+        scoped_vector<expr*>       m_recfuns;    // set of recursive functions that are defined by unfolding seq argument (map/fold)
         bool                       m_lts_checked; 
         unsigned                   m_eq_id;
         th_union_find              m_find;
@@ -406,7 +406,7 @@ namespace smt {
         void init_model(model_generator & mg) override;
         void finalize_model(model_generator & mg) override;
         void init_search_eh() override;
-        void validate_model(model& mdl) override;
+        void validate_model(proto_model& mdl) override;
         bool is_beta_redex(enode* p, enode* n) const override;
 
         void init_model(expr_ref_vector const& es);
@@ -484,6 +484,7 @@ namespace smt {
         bool solve_nqs(unsigned i);
         bool solve_ne(unsigned i);
         bool solve_nc(unsigned i);
+        bool solve_recfuns();
         bool check_ne_literals(unsigned idx, unsigned& num_undef_lits);
         bool propagate_ne2lit(unsigned idx);
         bool propagate_ne2eq(unsigned idx);
@@ -561,6 +562,7 @@ namespace smt {
         void enforce_length_coherence(enode* n1, enode* n2);
 
         void add_length_limit(expr* s, unsigned k, bool is_searching);
+        void init_length_limit_for_contains(expr* c);
 
         // model-check the functions that convert integers to strings and the other way.
         void add_int_string(expr* e);

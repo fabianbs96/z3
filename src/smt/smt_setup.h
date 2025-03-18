@@ -82,6 +82,7 @@ namespace smt {
         void setup_LRA();
         void setup_CSP();
         void setup_special_relations();
+        void setup_polymorphism();
         void setup_AUFLIA(bool simple_array = true);
         void setup_AUFLIA(static_features const & st);
         void setup_AUFLIRA(bool simple_array = true);
@@ -102,11 +103,13 @@ namespace smt {
         void setup_seq();
         void setup_char();
         void setup_card();
+        void setup_sls();
         void setup_i_arith();
         void setup_mi_arith();
         void setup_lra_arith();
         void setup_fpa();
         void setup_str();
+        void setup_relevancy(static_features& st);
 
     public:
         setup(context & c, smt_params & params);

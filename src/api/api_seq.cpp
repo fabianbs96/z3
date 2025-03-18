@@ -212,6 +212,8 @@ extern "C" {
                 buffer.push_back('\\');
                 buffer.push_back('u');
                 buffer.push_back('{');
+                if (ch == 0)
+                    buff.push_back('0');
                 while (ch > 0) {
                     unsigned d = ch & 0xF;
                     if (d < 10)
@@ -345,6 +347,11 @@ extern "C" {
     MK_UNARY(Z3_mk_char_to_bv, mk_c(c)->get_char_fid(), OP_CHAR_TO_BV, SKIP);
     MK_UNARY(Z3_mk_char_from_bv, mk_c(c)->get_char_fid(), OP_CHAR_FROM_BV, SKIP);
     MK_UNARY(Z3_mk_char_is_digit, mk_c(c)->get_char_fid(), OP_CHAR_IS_DIGIT, SKIP);
+
+    MK_BINARY(Z3_mk_seq_map, mk_c(c)->get_seq_fid(), OP_SEQ_MAP, SKIP); 
+    MK_TERNARY(Z3_mk_seq_mapi, mk_c(c)->get_seq_fid(), OP_SEQ_MAPI, SKIP);
+    MK_TERNARY(Z3_mk_seq_foldl, mk_c(c)->get_seq_fid(), OP_SEQ_FOLDL, SKIP);
+    MK_FOURARY(Z3_mk_seq_foldli, mk_c(c)->get_seq_fid(), OP_SEQ_FOLDLI, SKIP);
 
 
 };

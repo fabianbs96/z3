@@ -18,6 +18,7 @@ Revision History:
 
 --*/
 #include<typeinfo>
+#include "util/debug.h"
 #include "util/z3_version.h"
 #include "api/api_context.h"
 #include "ast/ast_pp.h"
@@ -51,6 +52,8 @@ namespace api {
     }
 
     void context::del_object(api::object* o) {
+        if (!o)
+            return;
 #ifndef SINGLE_THREAD
         if (m_concurrent_dec_ref) {
             lock_guard lock(m_mux);
@@ -76,6 +79,11 @@ namespace api {
             m().dec_ref(a);
     }
 
+    // flush_objects can only be called in the main thread.
+    // This ensures that the calls to m().dec_ref() and dealloc(o)
+    // only happens in the main thread.
+    // Calls to dec_ref are allowed in other threads when m_concurrent_dec_ref is
+    // set to true.
     void context::flush_objects() {
 #ifndef SINGLE_THREAD
         if (!m_concurrent_dec_ref)
@@ -149,11 +157,16 @@ namespace api {
 
 
     context::~context() {
+        if (m_parser)
+            smt2::free_parser(m_parser);
         m_last_obj = nullptr;
         flush_objects();
         for (auto& kv : m_allocated_objects) {
             api::object* val = kv.m_value;
-            DEBUG_CODE(warning_msg("Uncollected memory: %d: %s", kv.m_key, typeid(*val).name()););
+#ifdef SINGLE_THREAD
+# define m_concurrent_dec_ref false
+#endif
+            DEBUG_CODE(if (!m_concurrent_dec_ref) warning_msg("Uncollected memory: %d: %s", kv.m_key, typeid(*val).name()););
             dealloc(val);
         }
         if (m_params.owns_manager())
@@ -196,21 +209,10 @@ namespace api {
             invoke_error_handler(err);
         }
     }
-
-    char * context::mk_external_string(char const * str) {
-        m_string_buffer = str?str:"";
-        return const_cast<char *>(m_string_buffer.c_str());
-    }
-
-    char * context::mk_external_string(char const * str, unsigned n) {
-        m_string_buffer.clear();
-        m_string_buffer.append(str, n);
-        return const_cast<char *>(m_string_buffer.c_str());
-    }
     
-    char * context::mk_external_string(std::string && str) {
+    const char * context::mk_external_string(std::string && str) {
         m_string_buffer = std::move(str);
-        return const_cast<char *>(m_string_buffer.c_str());
+        return m_string_buffer.c_str();
     }
 
     expr * context::mk_numeral_core(rational const & n, sort * s) {
@@ -293,7 +295,7 @@ namespace api {
                 set_error_code(Z3_MEMOUT_FAIL, nullptr);
             break;
             case ERR_PARSER: 
-                set_error_code(Z3_PARSER_ERROR, ex.msg());
+                set_error_code(Z3_PARSER_ERROR, ex.what());
                 break;
             case ERR_INI_FILE: 
                 set_error_code(Z3_INVALID_ARG, nullptr);
@@ -307,7 +309,7 @@ namespace api {
             }
         }
         else {
-            set_error_code(Z3_EXCEPTION, ex.msg()); 
+            set_error_code(Z3_EXCEPTION, ex.what()); 
         }
     }
     
@@ -326,12 +328,12 @@ namespace api {
                 std::ostringstream buffer;
                 app * a = to_app(n);
                 buffer << mk_pp(a->get_decl(), m()) << " applied to: ";
-                if (a->get_num_args() > 1) buffer << "\n";
+                if (a->get_num_args() > 1) buffer << '\n';
                 for (unsigned i = 0; i < a->get_num_args(); ++i) {
                     buffer << mk_bounded_pp(a->get_arg(i), m(), 3) << " of sort ";
-                    buffer << mk_pp(a->get_arg(i)->get_sort(), m()) << "\n";
+                    buffer << mk_pp(a->get_arg(i)->get_sort(), m()) << '\n';
                 }
-                auto str = buffer.str();
+                auto str = std::move(buffer).str();
                 warning_msg("%s", str.c_str());
                 break;
             }
@@ -381,6 +383,7 @@ extern "C" {
         Z3_TRY;
         LOG_Z3_mk_context_rc(c);
         memory::initialize(UINT_MAX);
+        set_default_exit_action(exit_action::throw_exception);
         Z3_context r = reinterpret_cast<Z3_context>(alloc(api::context, reinterpret_cast<ast_context_params*>(c), true));
         RETURN_Z3(r);
         Z3_CATCH_RETURN_NO_HANDLE(nullptr);
@@ -515,7 +518,7 @@ extern "C" {
         }
     }
 
-    Z3_API char const * Z3_get_error_msg(Z3_context c, Z3_error_code err) {
+    Z3_string Z3_API Z3_get_error_msg(Z3_context c, Z3_error_code err) {
         LOG_Z3_get_error_msg(c, err);
         return _get_error_msg(c, err);
     }

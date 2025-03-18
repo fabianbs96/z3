@@ -26,11 +26,11 @@ Notes:
 #include "smt/smt_solver.h"
 #include "tactic/tactic.h"
 #include "tactic/tactical.h"
-#include "tactic/generic_model_converter.h"
+#include "ast/converters/generic_model_converter.h"
 #include "solver/solver2tactic.h"
 #include "solver/solver.h"
 #include "solver/mus.h"
-#include "solver/parallel_tactic.h"
+#include "solver/parallel_tactical.h"
 #include "solver/parallel_params.hpp"
 
 typedef obj_map<expr, expr *> expr2expr_map;
@@ -41,6 +41,7 @@ class smt_tactic : public tactic {
     smt_params                   m_params;
     params_ref                   m_params_ref;
     expr_ref_vector              m_vars;
+    vector<std::pair<expr_ref, expr_ref>> m_values;
     statistics                   m_stats;
     smt::kernel*                 m_ctx = nullptr;
     symbol                       m_logic;
@@ -309,7 +310,7 @@ public:
             }
         }
         catch (rewriter_exception & ex) {
-            throw tactic_exception(ex.msg());
+            throw tactic_exception(ex.what());
         }
     }
 
@@ -323,7 +324,13 @@ public:
     user_propagator::eq_eh_t    m_diseq_eh;
     user_propagator::created_eh_t m_created_eh;
     user_propagator::decide_eh_t m_decide_eh;
-   
+    void* m_on_clause_ctx = nullptr;
+    user_propagator::on_clause_eh_t m_on_clause_eh;
+
+    void on_clause_delay_init() {
+        if (m_on_clause_eh)
+            m_ctx->register_on_clause(m_on_clause_ctx, m_on_clause_eh);
+    }
 
     void user_propagate_delay_init() {
         if (!m_user_ctx)
@@ -338,6 +345,8 @@ public:
 
         for (expr* v : m_vars) 
             m_ctx->user_propagate_register_expr(v);
+        for (auto& [var, value] : m_values)
+            m_ctx->user_propagate_initialize_value(var, value);
     }
 
     void user_propagate_clear() override {
@@ -349,6 +358,13 @@ public:
         m_diseq_eh = nullptr;
         m_created_eh = nullptr;
         m_decide_eh = nullptr;
+        m_on_clause_eh = nullptr;
+        m_on_clause_ctx = nullptr;
+    }
+
+    void register_on_clause(void* ctx, user_propagator::on_clause_eh_t& on_clause) override {
+        m_on_clause_ctx = ctx;
+        m_on_clause_eh = on_clause;
     }
 
     void user_propagate_init(
@@ -389,6 +405,10 @@ public:
     
     void user_propagate_register_decide(user_propagator::decide_eh_t& decide_eh) override {
         m_decide_eh = decide_eh;
+    }
+
+    void user_propagate_initialize_value(expr* var, expr* value) override {
+        m_values.push_back({expr_ref(var, m), expr_ref(value, m)});
     }
 };
 

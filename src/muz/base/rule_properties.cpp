@@ -31,8 +31,6 @@ rule_properties::rule_properties(ast_manager & m, rule_manager& rm, context& ctx
     m_dt(m), m_dl(m), m_a(m), m_bv(m), m_ar(m), m_rec(m), 
     m_generate_proof(false), m_collected(false), m_is_monotone(true) {}
 
-rule_properties::~rule_properties() {}
-
 void rule_properties::collect(rule_set const& rules) {
     reset();
     m_collected = true;
@@ -138,6 +136,12 @@ void rule_properties::check_nested_free() {
         throw default_exception(stm.str());
     }
 }
+
+void rule_properties::check_background_free() {
+    if (m_ctx.get_num_assertions() > 0)
+        throw default_exception("engine does not support background assertions");
+}
+
 
 void rule_properties::check_existential_tail() {
     ast_mark visited;

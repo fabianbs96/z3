@@ -29,6 +29,12 @@ namespace smt {
     class model_generator;
     class model_value_proc;
 
+    struct solution {
+        expr* var;
+        expr_ref term;
+        expr_ref guard;
+    };
+
     class theory {
     protected:
         theory_id       m_id;
@@ -368,7 +374,8 @@ namespace smt {
         //
         // ----------------------------------------------------
 
-        virtual void validate_model(model& mdl) {}
+        virtual void validate_model(proto_model& mdl) {}
+
 
         // ----------------------------------------------------
         //
@@ -387,7 +394,7 @@ namespace smt {
 
     public:
         theory(context& ctx, family_id fid);
-        virtual ~theory();
+        virtual ~theory() = default;
         
         virtual void setup() {}
 
@@ -548,6 +555,10 @@ namespace smt {
             return get_manager().mk_eq(lhs, rhs);
         }
 
+        virtual void initialize_value(expr* var, expr* value) {
+            IF_VERBOSE(5, verbose_stream() << "no default initialization associated with " << mk_pp(var, m) << " := " << mk_pp(value, m) << "\n");
+        }
+
         literal mk_eq(expr * a, expr * b, bool gate_ctx);
 
         literal mk_preferred_eq(expr* a, expr* b);
@@ -599,6 +610,8 @@ namespace smt {
         }
 
         virtual char const * get_name() const { return "unknown"; }
+
+        virtual void solve_for(vector<solution>& s) {}
 
         // -----------------------------------
         //

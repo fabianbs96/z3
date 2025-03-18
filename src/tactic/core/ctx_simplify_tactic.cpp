@@ -144,9 +144,8 @@ struct ctx_simplify_tactic::imp {
     };
 
     struct cache_cell {
-        expr *          m_from;
-        cached_result * m_result;
-        cache_cell():m_from(nullptr), m_result(nullptr) {}
+        expr *          m_from = nullptr;
+        cached_result * m_result = nullptr;
     };
 
     ast_manager &               m;
@@ -570,16 +569,15 @@ struct ctx_simplify_tactic::imp {
         m_occs.reset();
         m_occs(g);
         m_num_steps = 0;
-        unsigned sz = g.size();
         tactic_report report("ctx-simplify", g);
         if (g.proofs_enabled()) {
             expr_ref r(m);
-            for (unsigned i = 0; !g.inconsistent() && i < sz; ++i) {
-                expr * t = g.form(i);
+            unsigned idx = 0;
+            for (auto [t, dep, pr] : g) {
                 process(t, r);
                 proof_ref new_pr(m.mk_rewrite(t, r), m);
-                new_pr = m.mk_modus_ponens(g.pr(i), new_pr);
-                g.update(i, r, new_pr, g.dep(i));
+                new_pr = m.mk_modus_ponens(pr, new_pr);
+                g.update(idx++, r, new_pr, dep);
             }
         }
         else {
@@ -611,8 +609,8 @@ void ctx_simplify_tactic::updt_params(params_ref const & p) {
 void ctx_simplify_tactic::get_param_descrs(param_descrs & r) {
     insert_max_memory(r);
     insert_max_steps(r);
-    r.insert("max_depth", CPK_UINT, "(default: 1024) maximum term depth.");
-    r.insert("propagate_eq", CPK_BOOL, "(default: false) enable equality propagation from bounds.");
+    r.insert("max_depth", CPK_UINT, "maximum term depth.", "1024");
+    r.insert("propagate_eq", CPK_BOOL, "enable equality propagation from bounds.", "false");
 }
 
 void ctx_simplify_tactic::operator()(goal_ref const & in,

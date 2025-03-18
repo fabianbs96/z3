@@ -99,25 +99,24 @@ struct param_descrs::imp {
         return CPK_INVALID;
     }
 
-    bool split_name(symbol const& name, symbol & prefix, symbol & suffix) const {
+    bool split_name(symbol const& name, std::string_view & prefix, symbol & suffix) const {
         if (name.is_numerical()) return false;
         char const* str = name.bare_str();
         char const* period = strchr(str,'.');
         if (!period) return false;
-        svector<char> prefix_((unsigned)(period-str), str);
-        prefix_.push_back(0);
-        prefix = symbol(prefix_.data());
+        prefix = std::string_view(str, period - str);
         suffix = symbol(period + 1);
         return true;
     }
 
     param_kind get_kind_in_module(symbol & name) const {
         param_kind k = get_kind(name);
-        symbol prefix, suffix;
+        std::string_view prefix;
+        symbol suffix;
         if (k == CPK_INVALID && split_name(name, prefix, suffix)) {   
             k = get_kind(suffix);
             if (k != CPK_INVALID) {
-                if (symbol(get_module(suffix)) == prefix) {
+                if (get_module(suffix) == prefix) {
                     name = suffix;
                 }
                 else {
@@ -167,9 +166,11 @@ struct param_descrs::imp {
             names.push_back(kv.m_key);
         }
         std::sort(names.begin(), names.end(), symlt());
+        if (names.empty())
+            return;
         if (markdown) {
-            out << " Parameter | Type | Description | Default\n";
-            out << " ----------|------|-------------|--------\n";            
+            out << " Parameter | Type | Description | Default\n"
+                   " ----------|------|-------------|--------\n";
         }
         for (symbol const& name : names) {
             for (unsigned i = 0; i < indent; i++) out << " ";
@@ -195,16 +196,14 @@ struct param_descrs::imp {
             else
                 out << " (" << d.m_kind << ")";
             if (markdown) {
-                out << " | ";
-                std::string desc;
-                for (auto ch : std::string(d.m_descr)) {
+                out << " |  ";
+                for (auto ch : std::string_view(d.m_descr)) {
                     switch (ch) {
-                    case '<': desc += "&lt;"; break;
-                    case '>': desc += "&gt;"; break;
-                    default: desc.push_back(ch);
+                    case '<': out << "&lt;"; break;
+                    case '>': out << "&gt;"; break;
+                    default:  out << ch; break;
                     }
                 }
-                out << " " << desc;
             }
             else if (include_descr)
                 out << " " << d.m_descr;
@@ -312,19 +311,19 @@ void param_descrs::display_markdown(std::ostream & out, bool smt2_style, bool in
 }
 
 void insert_max_memory(param_descrs & r) {
-    r.insert("max_memory", CPK_UINT, "(default: infty) maximum amount of memory in megabytes.");
+    r.insert("max_memory", CPK_UINT, "(default: infty) maximum amount of memory in megabytes.", "4294967295");
 }
 
 void insert_max_steps(param_descrs & r) {
-    r.insert("max_steps", CPK_UINT, "(default: infty) maximum number of steps.");
+    r.insert("max_steps", CPK_UINT, "(default: infty) maximum number of steps.", "4294967295");
 }
 
 void insert_produce_models(param_descrs & r) {
-    r.insert("produce_models", CPK_BOOL, "(default: false) model generation.");
+    r.insert("produce_models", CPK_BOOL, "model generation.", "false");
 }
 
 void insert_produce_proofs(param_descrs & r) {
-    r.insert("produce_proofs", CPK_BOOL, "(default: false) proof generation.");
+    r.insert("produce_proofs", CPK_BOOL, "proof generation.", "false");
 }
 
 void insert_timeout(param_descrs & r) {
@@ -367,12 +366,11 @@ class params {
     };
     typedef std::pair<symbol, value> entry;
     svector<entry>        m_entries;
-    std::atomic<unsigned> m_ref_count;
+    std::atomic<unsigned> m_ref_count = 0;
     void del_value(entry & e);
     void del_values();
 
 public:
-    params():m_ref_count(0) {}
     ~params() {
         reset();
     }
@@ -392,7 +390,6 @@ public:
     void reset(char const * k);
 
     void validate(param_descrs const & p) {        
-        symbol suffix, prefix;
         for (params::entry& e : m_entries) {
             param_kind expected = p.get_kind_in_module(e.first);
             if (expected == CPK_INVALID) {
@@ -479,7 +476,8 @@ public:
 
     void display_smt2(std::ostream & out, char const* module, param_descrs& descrs) const {
         for (params::entry const& e : m_entries) {
-            if (!descrs.contains(e.first)) continue;
+            if (!descrs.contains(e.first)) 
+                continue;
             out << "(set-option :";
             out << module << ".";        
             out << e.first;
@@ -507,6 +505,7 @@ public:
                 break;
             }
             out << ")\n";
+            out << "; " << descrs.get_descr(e.first) << "\n";
         }
     }
 
@@ -547,8 +546,7 @@ params_ref::~params_ref() {
         m_params->dec_ref();
 }
 
-params_ref::params_ref(params_ref const & p):
-    m_params(nullptr) {
+params_ref::params_ref(params_ref const & p) {
     set(p);
 }
 

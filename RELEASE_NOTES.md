@@ -4,11 +4,245 @@ Version 4.next
 ================
 - Planned features
   - sat.euf 
-    - a new CDCL core for SMT queries. It extends the SAT engine with theory solver plugins.
-      the current state is unstable. It lacks efficient ematching.
-  - polysat
-    - native word level bit-vector solving.
-  - introduction of simple induction lemmas to handle a limited repertoire of induction proofs.
+    - CDCL core for SMT queries. It extends the SAT engine with theory solver plugins.
+  - add global incremental pre-processing for the legacy core.
+
+
+Version 4.14.2
+==============
+- Improved integer cut algorithms for linear integer arithmetic.
+
+Version 4.14.1
+==============
+- Add ubv_to_int, sbv_to_int, int_to_bv to SMTLIB2 API.
+- Fix nuget package regression omitting Microsoft.Z3.* files
+
+Version 4.14.0
+==============
+- [SLS modulo theories](https://microsoft.github.io/z3guide/programming/Local%20Search/) engine v1 release.
+- API for accessing term [depth and groundness](https://github.com/Z3Prover/z3/pull/7479).
+- Two fixes to relevancy propagation thanks to Can Cebeci. Two instacnes where literals lemmas and axioms were not marked relevant and therefore not propagated to other theories. Theory lemmas are replayed during backjumping and have are now by default marked relevant. 
+- A new API for solving LRA variables modulo constraints.
+- Performance and bug fixes.
+
+Version 4.13.4
+==============
+- several updates to emscripten including #7473
+- add preliminary pyodie build
+- address issues with Java bindings
+- Include start of sls-smt functionality SLS modulo theories as co-processor to SMT core and stand-alone tactic.
+
+Version 4.13.3
+==============
+- Fixes, including #7363
+- Fix paths to Java binaries in release
+- Remove internal build names from pypi wheels
+
+Version 4.13.2
+==============
+- Performance regression fix. #7404
+
+Version 4.13.1
+==============
+- single-sample cell projection in nlsat was designed by Haokun Li and Bican Xia. 
+- using simple-checker together with and variable ordering supported by qfnra_tactic was developed by Mengyu Zhao (Linxi) and Shaowei Cai.
+
+   The projection is described in paper by Haokun Li and Bican Xia,   [Solving Satisfiability of Polynomial Formulas By Sample - Cell Projection](https://arxiv.org/abs/2003.00409). The code ported from https://github.com/hybridSMT/hybridSMT.git
+
+- Add API for providing hints for the solver/optimize contexts for which initial values to attempt to use for variables.
+ The new API function are Z3_solver_set_initial_value and Z3_optimize_set_initial_value, respectively. Supply these functions with a Boolean or numeric variable, and a value. The solver will then attempt to use these values in the initial phase of search. The feature is aimed at resolving nearly similar problems, or problems with a predicted model and the intent is that restarting the solver based on a near solution can avoid prune the space of constraints that are initially infeasible.
+ The SMTLIB front-end contains the new command (set-initial-value var value). For example,
+ (declare-const x Int)
+ (set-initial-value x 10)
+ (push)
+ (assert (> x 0))
+ (check-sat)
+ (get-model)
+ produces a model where x = 10. We use (push) to ensure that z3 doesn't run a
+ specialized pre-processor that eliminates x, which renders the initialization
+ without effect.
+ 
+
+Version 4.13.0
+==============
+- add ARM64 wheels for Python, thanks to Steven Moy, smoy
+
+Version 4.12.6
+==============
+- remove expensive rewrite that coalesces adjacent stores
+- improved Java use of reference queues thanks to Thomas Haas #7131
+- fixes to conditional import of python library thanks to Cal Jacobson #7116
+- include universe for constants that get removed during pre-processing #7121
+- code improvements, Bruce Mitchener #7119
+- fix nested callback handling for user propagators
+- include ARM64 binaries in distribution
+- added Julia API, Thanks to Yisu Remy Yang #7108
+
+Version 4.12.5
+==============
+- Fixes to pypi setup and build for MacOS distributions
+- A new theory solver "int-blast" enabled by using:
+  - sat.smt=true smt.bv.solver=2
+  - It solves a few bit-vector problems not handled by bit-blasting, especially if the bit-widths are large.
+  - It is based on encoding bit-vector constraints to non-linear integer arithmetic.
+- Optimizations to the arithmetic solver. Description: https://github.com/Z3Prover/doc/tree/master/arithmetic
+
+Version 4.12.4
+==============
+- Re-release fixing a few issues with 4.12:
+  - Python dependency on importlib.resources vs importlib_resources break automatic pypi installations. Supposedly fixed by conditioning dependency on Python 3.9 where the feature is built-in.
+  - Missing release of arm64 for Ubuntu.
+  - Futile attempt to streamline adding readme.md file as part of Nuget distribution. Nuget.org now requires a readme file. I was able to integrate the readme with the cmake build, but the cross-platform repackage in scripts/mk_nuget_task.py does not ingest a similar readme file with the CI pipelines.
+
+Version 4.12.3
+==============
+- Alpha support for polymorphism.
+  - SMTLIB3-ish, C, Python
+  It adds the new command `(declare-type-var A)` that declares a symbol (in this case `A`) globally as a polymorphic type variable.
+  The C API contains a new function `Z3_mk_type_variable` and a new enumeration case `Z3_TYPE_VAR` as a kind associated with sorts.
+  All occurrences of `A` are treated as type variables. A function declaration whose signature uses `A` is treated as a shorthand
+  for declarations of all functions that use instances of `A`.
+  Assertions that use type variables are shorthands for assertions covering all instantiations.
+- Various (ongoing) performance fixes and improvements to smt.arith.solver=6
+- A working version of solver.proof.trim=true option. Proofs logs created when using sat.smt=true may be trimmed by running z3
+  on the generated proof log using the option solver.proof.trim=true. 
+- Optimizations LIA and NIA (linear integer arithmetic and non-linear integer (and real) arithmetic reasoning).
+  smt.arith.solver=6 is the default for most use cases. It trails smt.arith.solver=2 in some scenarios and the gap has been either removed or reduced.
+  smt.arith.solver=6 is complete for integrations of non-linear real arithmetic and theories, smt.arith.solver=2 is not. 
+- qel: Light quantifier elimination based on term graphs (egraphs), and corresponding Model Based Projection for arrays and ADTs. Used by Spacer and QSAT.
+- added real-closed fields features to C API, exposed more RCF over OCaml API
+- fixes to FP
+
+Version 4.12.2
+==============
+- remove MSF (Microsoft Solver Foundation) plugin
+- updated propagate-ineqs tactic and implementing it as a simplifier, bound_simplifier.
+  It now eliminates occurrences of "mod" operators when bounds information
+  implies that the modulus is redundant. This tactic is useful for
+  benchmarks created by converting bit-vector semantics to integer 
+  reasoning.
+- add API function Z3_mk_real_int64 to take two int64 as arguments. The Z3_mk_real function takes integers.
+- Add _simplifiers_ as optional incremental pre-processing to solvers.
+  They are exposed over the SMTLIB API using the command [`set-simplifier`](https://microsoft.github.io/z3guide/docs/strategies/simplifiers).
+  Simplifiers are similar to tactics, but they operate on solver state that can be incrementally updated. 
+  The exposed simplifiers cover all the pre-processing techniques used internally with some additional simplifiers, such as `solve-eqs`
+  and `elim-predicates` that go beyond incremental pre-processing used internally. The advantage of using `solve-eqs` during pre-processing
+  can be significant. Incremental pre-processing simplification using `solve-eqs` and other simplifiers that change interpretations 
+  was not possible before.
+- Optimize added to JS API, thanks to gbagan
+- SMTLIB2 proposal for bit-vector overflow predicates added, thanks to aehyvari 
+- bug fixes, thanks to Clemens Eisenhofer, hgvk94, Lev Nachmanson, and others
+
+
+Version 4.12.1
+==============
+- change macos build to use explicit reference to Macos version 11. Hosted builds are migrating to macos-12 and it broke a user Issue #6539.
+
+Version 4.12.0
+==============
+- add clause logging API.
+  - The purpose of logging API and self-checking is to enable an array of use cases.
+    - proof mining (what instantiations did Z3 use)? 
+      - A refresh of the AxiomProfiler could use the logging API. 
+        The (brittle) trace feature should be deprecated.
+    - debugging
+      - a built-in self certifier implements a custom proof checker for 
+        the format used by the new solver (sat.euf=true).
+    - other potential options:
+      - integration into certified tool chains      
+      - interpolation 
+  - Z3_register_on_clause (also exposed over C++, Python and .Net)
+  - it applies to z3's main CDCL(T) core and a new CDCL(T) core (sat.euf=true).
+  - The added API function allows to register a callback for when clauses 
+    are inferred. More precisely, when clauses are assumed (as part of input), 
+    deleted, or deduced.
+    Clauses that are deduced by the CDCL SAT engine using standard 
+    inferences are marked as 'rup'.
+    Clauses that are deduced by theories are marked by default 
+    by 'smt', and when more detailed information
+    is available with proof hints or proof objects. 
+    Instantiations are considered useful to track so they
+    are logged using terms of the form 
+
+         (inst (not (forall (x) body)) body[t/x] (bind t)), where
+
+    'inst' is a name of a function that produces a proof term representing 
+    the instantiation.
+- add options for proof logging, trimming, and checking for the new core.
+  - sat.smt.proof (symbol) add SMT proof to file (default: )
+  - sat.smt.proof.check (bool) check SMT proof while it is created (default: false)
+    - it applies a custom self-validator. The self-validator comprises of 
+      several small checkers and represent a best-effort validation mechanism. 
+      If there are no custom validators associated with inferences, or the custom 
+      validators fail to certify inferences, the self-validator falls back to 
+      invoking z3 (SMT) solving on the lemma.
+      - euf - propagations and conflicts from congruence closure 
+              (theory of equality and uninterpreted functions) are checked
+              based on a proof format that tracks uses of congruence closure and 
+              equalities. It only performs union find operations.
+      - tseitin - clausification steps are checked for Boolean operators.
+      - farkas, bound, implies_eq - arithmetic inferences that can be justified using 
+              a combination of Farkas lemma and cuts are checked.
+              Note: the arithmetic solver may produce proof hints that the proof 
+              checker cannot check. It is mainly a limitation
+              of the arithmetic solver not pulling relevant information. 
+              Ensuring a tight coupling with proof hints and the validator
+              capabilities is open ended future work and good material for theses. 
+      - bit-vector inferences - are treated as trusted 
+        (there is no validation, it always blindly succeeds)
+      - arrays, datatypes - there is no custom validation for 
+        other theories at present. Lemmas are validated using SMT.
+  - sat.smt.proof.check_rup (bool) apply forward RUP proof checking (default: true)
+    - this option can incur significant runtime overhead. 
+      Effective proof checking relies on first trimming proofs into a 
+      format where dependencies are tracked and then checking relevant inferences. 
+      Turn this option off if you just want to check theory inferences.                         
+- add options to validate proofs offline. It applies to proofs 
+  saved when sat.smt.proof is set to a valid file name.
+  - solver.proof.check (bool) check proof logs (default: true)
+    - the option sat.smt.proof_check_rup can be used to control what is checked
+  - solver.proof.save (bool) save proof log into a proof object 
+      that can be extracted using (get-proof) (default: false)
+    - experimental: saves a proof log into a term
+  - solver.proof.trim (bool) trim the offline proof and print the trimmed proof to the console
+    - experimental: performs DRUP trimming to reduce the set of hypotheses 
+      and inferences relevant to derive the empty clause.
+- JS support for Arrays, thanks to Walden Yan
+- More portable memory allocation, thanks to Nuno Lopes 
+  (avoid custom handling to calculate memory usage)
+
+- clause logging and proofs: many open-ended directions.
+  Many directions and functionality features remain in an open-ended state, 
+  subject to fixes, improvements, and contributions.
+  We list a few of them here:
+  - comprehensive efficient self-validators for arithmetic, and other theories
+  - an efficient proof checker when several theory solvers cooperate in a propagation or 
+    conflict. The theory combination case is currently delegated to the smt solver. 
+    The proper setup for integrating theory lemmas is in principle not complicated, 
+    but the implementation requires some changes.
+  - external efficient proof validators (based on certified tool chains) 
+    can be integrated over the API.
+  - dampening repeated clauses: A side-effect of conflict resolution is to 
+    log theory lemmas. It often happens that the theory lemma becomes
+    the conflict clause, that is then logged as rup. Thus, two clauses are 
+    logged.
+  - support for online trim so that proofs generated using clause logging can be used for SPACER
+    - SPACER also would benefit from more robust proof hints for arithmetic 
+      lemmas (bounds and implied equalities are sometimes not logged correctly)
+  - integration into axiom profiling through online and/or offline interfaces.
+    - an online interface attaches a callback with a running solver. This is available.
+    - an offline interface saves a clause proof to a file (currently just 
+      supported for sat.euf) and then reads the file in a separate process
+      The separate process attaches a callback on inferred clauses. 
+      This is currently not available but a relatively small feature.
+  - more detailed proof hints for the legacy solver clause logger. 
+    Other than quantifier instantiations, no detailed information is retained for 
+    theory clauses. 
+  - integration of pre-processing proofs with logging proofs. There is 
+    currently no supported bridge to create a end-to-end proof objects.
+- experimental API for accessing E-graphs. Exposed over Python. This API should be considered temporary
+and subject to be changed depending on use cases or removed. The functions are `Z3_solver_congruence_root`, `Z3_solver_congruence_next`.
+
 
 Version 4.11.2
 ==============
@@ -23,13 +257,13 @@ Version 4.11.2
   with SMT format that is extensible. The resulting format is a mild extension of SMTLIB with
   three extra commands assume, learn, del. They track input clauses, generated clauses and deleted clauses.
   They are optionally augmented by proof hints. Two proof hints are used in the current version: "rup" and "farkas".
-  "rup" is used whent the generated clause can be justified by reverse unit propagation. "farkas" is used when
+  "rup" is used when the generated clause can be justified by reverse unit propagation. "farkas" is used when
   the clause can be justified by a combination of Farkas cutting planes. There is a built-in proof checker for the
   format. Quantifier instantiations are also tracked as proof hints.
-  Other proof hints are to be added as the feature set is tested and developed. The fallback, buit-in,
+  Other proof hints are to be added as the feature set is tested and developed. The fallback, built-in,
   self-checker uses z3 to check that the generated clause is a consequence. Note that this is generally
   insufficient as generated clauses are in principle required to only be satisfiability preserving.
-  Proof checking and tranformation operations is overall open ended.
+  Proof checking and transformation operations is overall open ended.
   The log for the first commit introducing this change contains further information on the format.
 - fix to re-entrancy bug in user propagator (thanks to Clemens Eisenhofer).
 - handle _toExpr for quantified formulas in JS bindings
@@ -503,7 +737,7 @@ xor88, parno, gario, Bauna, GManNickG, hanwentao, dinu09, fhowar, Cici, chinissa
       (assert F)
       (check-sat a)
       (check-sat)
-  If 'F' is unstatisfiable independently of the assumption 'a', and 
+  If 'F' is unsatisfiable independently of the assumption 'a', and 
   the inconsistency can be detected by just performing propagation,
   Then, version <= 4.3.1 may return
       unsat

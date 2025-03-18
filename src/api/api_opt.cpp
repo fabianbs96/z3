@@ -168,7 +168,7 @@ extern "C" {
                 }
                 r = l_undef;
                 if (!mk_c(c)->m().inc()) {
-                    to_optimize_ptr(o)->set_reason_unknown(ex.msg());
+                    to_optimize_ptr(o)->set_reason_unknown(ex.what());
                 }
                 else {
                     mk_c(c)->handle_exception(ex);
@@ -313,7 +313,7 @@ extern "C" {
         param_descrs descrs;
         to_optimize_ptr(d)->collect_param_descrs(descrs);
         descrs.display(buffer);
-        return mk_c(c)->mk_external_string(buffer.str());
+        return mk_c(c)->mk_external_string(std::move(buffer).str());
         Z3_CATCH_RETURN("");
     }
 
@@ -364,15 +364,20 @@ extern "C" {
             }        
         }
         catch (z3_exception& e) {
-            errstrm << e.msg();
+            errstrm << e.what();
             ctx = nullptr;
             SET_ERROR_CODE(Z3_PARSER_ERROR, errstrm.str());
             return;
         }
 
-        for (expr * e : ctx->assertions()) {
-            to_optimize_ptr(opt)->add_hard_constraint(e);
-        }
+        auto o = to_optimize_ptr(opt);
+
+        for (auto const& [asr, an] : ctx->tracked_assertions())
+            if (an)
+                o->add_hard_constraint(asr, an);
+            else
+                o->add_hard_constraint(asr);
+
     }
 
 
@@ -383,8 +388,7 @@ extern "C" {
         Z3_string     s) {
         Z3_TRY;
         //LOG_Z3_optimize_from_string(c, d, s);
-        std::string str(s);
-        std::istringstream is(str);
+        std::istringstream is(s);
         Z3_optimize_from_stream(c, d, is, nullptr);
         Z3_CATCH;
     }
@@ -460,6 +464,21 @@ extern "C" {
         Z3_CATCH;
     }
 
-
+    void Z3_API Z3_optimize_set_initial_value(Z3_context c, Z3_optimize o, Z3_ast var, Z3_ast value) {
+        Z3_TRY;
+        LOG_Z3_optimize_set_initial_value(c, o, var, value);
+        RESET_ERROR_CODE();
+        if (to_expr(var)->get_sort() != to_expr(value)->get_sort()) {
+            SET_ERROR_CODE(Z3_INVALID_USAGE, "variable and value should have same sort");
+            return;
+        }
+        ast_manager& m = mk_c(c)->m();
+        if (!m.is_value(to_expr(value))) {
+            SET_ERROR_CODE(Z3_INVALID_USAGE, "a proper value was not supplied");
+            return;
+        }
+        to_optimize_ptr(o)->initialize_value(to_expr(var), to_expr(value));
+        Z3_CATCH;        
+    }
 
 };

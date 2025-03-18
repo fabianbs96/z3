@@ -36,7 +36,7 @@ std::ostream& operator<<(std::ostream& out, opt::ineq_type ie) {
 
 
 namespace opt {
-    
+
     /**
      * Convert a row ax + coeffs + coeff = value into a definition for x
      *    x  = (value - coeffs - coeff)/a 
@@ -44,132 +44,150 @@ namespace opt {
      * satisfy the equality with value, and such that value satisfies
      * the row constraint ( = , <= , < , mod)
      */
-    model_based_opt::def::def(row const& r, unsigned x) {
+    model_based_opt::def* model_based_opt::def::from_row(row const& r, unsigned x) {
+        rational div(1), lc(denominator(r.m_coeff));
+
         for (var const & v : r.m_vars) {
-            if (v.m_id != x) { 
-                m_vars.push_back(v); 
-            }
-            else {
-                m_div = -v.m_coeff;
-            }
-        }        
-        m_coeff = r.m_coeff;
+            lc = lcm(lc, denominator(v.m_coeff));
+            if (v.m_id == x) {
+                div = -v.m_coeff;
+                break;
+            }    
+        }   
+        div *= lc;
+        bool sign = div < 0;
+        auto coeff = lc * r.m_coeff;
         switch (r.m_type) {
         case opt::t_lt: 
-            m_coeff += m_div;
+            coeff += div;
             break;
         case opt::t_le:
-            // for: ax >= t, then x := (t + a - 1) div a
-            if (m_div.is_pos()) {
-                m_coeff += m_div;
-                m_coeff -= rational::one();
+            // for: ax <= t, then x := (t + a - 1) div a
+            if (!sign) {
+                coeff += div;
+                coeff -= rational::one();
             }
             break;
         default:
             break;
         }
-        normalize();
-        SASSERT(m_div.is_pos());
-    }
 
-    model_based_opt::def model_based_opt::def::operator+(def const& other) const {
-        def result;
-        vector<var> const& vs1 = m_vars;
-        vector<var> const& vs2 = other.m_vars;
-        vector<var> & vs = result.m_vars;
-        rational c1(1), c2(1);
-        if (m_div != other.m_div) {
-            c1 = other.m_div;
-            c2 = m_div;
-        }        
-        unsigned i = 0, j = 0;
-        while (i < vs1.size() || j < vs2.size()) {
-            unsigned v1 = UINT_MAX, v2 = UINT_MAX;
-            if (i < vs1.size()) v1 = vs1[i].m_id;
-            if (j < vs2.size()) v2 = vs2[j].m_id;
-            if (v1 == v2) {
-                vs.push_back(vs1[i]);
-                vs.back().m_coeff *= c1; 
-                vs.back().m_coeff += c2 * vs2[j].m_coeff; 
-                ++i; ++j;
-                if (vs.back().m_coeff.is_zero()) {
-                    vs.pop_back();
-                }
-            }
-            else if (v1 < v2) {
-                vs.push_back(vs1[i]);
-                vs.back().m_coeff *= c1;                 
-            }
-            else {
-                vs.push_back(vs2[j]);
-                vs.back().m_coeff *= c2;                 
-            }
+        if (div < 0) {
+            sign = true;
+            div.neg();
+            lc.neg();
+            coeff.neg();
         }
-        result.m_div = c1*m_div;
-        result.m_coeff = (m_coeff*c1) + (other.m_coeff*c2);
-        result.normalize();
+        def* result = alloc(const_def, coeff);
+        for (var const& v : r.m_vars) {
+            if (v.m_id != x)
+                result = *result + *alloc(var_def, v * lc);
+        }
+        if (div > 1) 
+            result = *result / div;  
         return result;
     }
-
-    model_based_opt::def model_based_opt::def::operator/(rational const& r) const {
-        def result(*this);
-        result.m_div *= r;
-        result.normalize();
-        return result;
+    void model_based_opt::def::dec_ref() {
+        SASSERT(m_ref_count > 0);
+        ++m_ref_count;
+        if (m_ref_count == 0) 
+            dealloc(this);            
     }
 
-    model_based_opt::def model_based_opt::def::operator*(rational const& n) const {
-        def result(*this);
-        for (var& v : result.m_vars) {
-            v.m_coeff *= n;
-        }
-        result.m_coeff *= n;
-        result.normalize();
-        return result;
+    model_based_opt::def* model_based_opt::def::operator+(def& other) {
+        return alloc(add_def, this, &other);
+    }
+    model_based_opt::def* model_based_opt::def::operator*(def& other) {
+        return alloc(mul_def, this, &other);
+    }
+    model_based_opt::def* model_based_opt::def::operator/(rational const& r) {
+        if (r == 1)
+            return this;
+        return alloc(div_def, this, r);
+    }
+    model_based_opt::def* model_based_opt::def::operator*(rational const& n) {
+        if (n == 1)
+            return this;
+        return alloc(mul_def, this, alloc(const_def, n));
+    }
+    model_based_opt::def* model_based_opt::def::operator+(rational const& n) {
+        if (n == 0)
+            return this;
+        return alloc(add_def, this, alloc(const_def, n));
+    }
+    model_based_opt::add_def& model_based_opt::def::to_add() {
+        return *static_cast<add_def*>(this);
+    }
+    model_based_opt::mul_def& model_based_opt::def::to_mul() {
+        return *static_cast<mul_def*>(this);
+    }
+    model_based_opt::div_def& model_based_opt::def::to_div() {
+        return *static_cast<div_def*>(this);
+    }
+    model_based_opt::var_def& model_based_opt::def::to_var() {
+        return *static_cast<var_def*>(this);
+    }
+    model_based_opt::const_def& model_based_opt::def::to_const() {
+        return *static_cast<const_def*>(this);
+    }
+    model_based_opt::add_def const& model_based_opt::def::to_add() const {
+        return *static_cast<add_def const*>(this);
+    }
+    model_based_opt::mul_def const& model_based_opt::def::to_mul() const {
+        return *static_cast<mul_def const*>(this);
+    }
+    model_based_opt::div_def const& model_based_opt::def::to_div() const {
+        return *static_cast<div_def const*>(this);
+    }
+    model_based_opt::var_def const& model_based_opt::def::to_var() const {
+        return *static_cast<var_def const*>(this);
+    }
+    model_based_opt::const_def const& model_based_opt::def::to_const() const {
+        return *static_cast<const_def const*>(this);
     }
 
-    model_based_opt::def model_based_opt::def::operator+(rational const& n) const {
-        def result(*this);
-        result.m_coeff += n * result.m_div;
-        result.normalize();
-        return result;
-    }
 
-    void model_based_opt::def::normalize() {
-        if (!m_div.is_int()) {
-            rational den = denominator(m_div);
-            SASSERT(den > 1);
-            for (var& v : m_vars)
-                v.m_coeff *= den;
-            m_coeff *= den;
-            m_div *= den;
 
+    /**
+         a1*x1 + a2*x2 + a3*x3 + coeff1 / c1
+         x2 |-> b1*x1 + b4*x4 + ceoff2 / c2
+         ------------------------------------------------------------------------
+         (a1*x1 + a2*((b1*x1 + b4*x4 + coeff2) / c2) + a3*x3 + coeff1) / c1
+         ------------------------------------------------------------------------
+         (c2*a1*x1 + a2*b1*x1 + a2*b4*x4 + c2*a3*x3 + c2*coeff1 + coeff2) / c1*c2
+     */
+    model_based_opt::def* model_based_opt::def::substitute(unsigned v, def& other) {
+        if (is_add()) {
+            auto x = to_add().x->substitute(v, other);
+            auto y = to_add().y->substitute(v, other);
+            if (x == to_add().x && y == to_add().y)
+                return this;
+            return *x + *y;
         }
-        if (m_div.is_neg()) {
-            for (var& v : m_vars)
-                v.m_coeff.neg();
-            m_coeff.neg();
-            m_div.neg();
+        if (is_mul()) {
+            auto x = to_mul().x->substitute(v, other);
+            auto y = to_mul().y->substitute(v, other);
+            if (x == to_mul().x && y == to_mul().y)
+                return this;
+            return *x * *y;
         }
-        if (m_div.is_one())
-            return;
-        rational g(m_div);
-        if (!m_coeff.is_int())
-            return;
-        g = gcd(g, m_coeff);
-        for (var const& v : m_vars) {
-            if (!v.m_coeff.is_int())
-                return;
-            g = gcd(g, abs(v.m_coeff));
-            if (g.is_one()) 
-                break;
+        if (is_div()) {
+            auto x = to_div().x->substitute(v, other);
+            if (x == to_div().x)
+                return this;
+            return *x / to_div().m_div;
+        }            
+        if (is_var()) {
+            if (to_var().v.m_id != v)
+                return this;
+            if (to_var().v.m_coeff == 1)
+                return &other;
+            return other * to_var().v.m_coeff;
         }
-        if (!g.is_one()) {
-            for (var& v : m_vars) 
-                v.m_coeff /= g;            
-            m_coeff /= g;
-            m_div /= g;
-        }
+        if (is_const())
+            return this;
+        UNREACHABLE();
+        return this;
     }
 
     model_based_opt::model_based_opt() {
@@ -426,13 +444,18 @@ namespace opt {
     }
 
     rational model_based_opt::eval(def const& d) const {
-        vector<var> const& vars = d.m_vars;
-        rational val = d.m_coeff;
-        for (var const& v : vars) {
-            val += v.m_coeff * eval(v.m_id);
-        }
-        val /= d.m_div;
-        return val;        
+        if (d.is_add()) 
+            return eval(*d.to_add().x) + eval(*d.to_add().y);
+        else if (d.is_div()) 
+            return eval(*d.to_div().x) / d.to_div().m_div;
+        else if (d.is_mul())
+            return eval(*d.to_mul().x) * eval(*d.to_mul().y);
+        else if (d.is_var())
+            return d.to_var().v.m_coeff * eval(d.to_var().v.m_id);
+        else if (d.is_const())
+            return d.to_const().c;
+        UNREACHABLE();
+        return rational::zero();
     }
        
     rational model_based_opt::eval(row const& r) const {
@@ -486,7 +509,7 @@ namespace opt {
         if (m_type == t_divides || m_type == t_mod || m_type == t_div)
             return *this;
         rational D(denominator(abs(m_coeff)));
-        if (D == 0)
+        if (D == 0)
             D = 1;
         for (auto const& [id, coeff] : m_vars)
             if (coeff != 0)
@@ -536,7 +559,7 @@ namespace opt {
             rational a2 = get_coefficient(row_dst, x);
             if (is_int(x)) {
                 TRACE("opt", 
-                      tout << x << ": " << a1 << " " << a2 << ": ";
+                      tout << "v" << x << ": " << a1 << " " << a2 << ":\n";
                       display(tout, m_rows[row_dst]);
                       display(tout, m_rows[row_src]););
                 if (a1.is_pos() != a2.is_pos() || m_rows[row_src].m_type == opt::t_eq) {  
@@ -881,10 +904,17 @@ namespace opt {
     }
 
     std::ostream& model_based_opt::display(std::ostream& out, def const& r) {
-        display(out, r.m_vars, r.m_coeff);
-        if (!r.m_div.is_one()) {
-            out << " / " << r.m_div;
-        }
+        if (r.is_add())
+            return out << "(" << * r.to_add().x << " + " << *r.to_add().y << ")";
+        if (r.is_mul())
+            return out << "(" << * r.to_mul().x << " * " << *r.to_mul().y << ")";
+        if (r.is_var())
+            return out << r.to_var().v.m_coeff << "* v" << r.to_var().v.m_id;
+        if (r.is_div())
+            return out << "(" << * r.to_div().x << " / " << r.to_div().m_div << ")";
+        if (r.is_const())
+            return out << r.to_const().c;
+        UNREACHABLE();
         return out;
     }
 
@@ -953,12 +983,14 @@ namespace opt {
         return dst;
     }
 
+    // -x + lo <= 0
     void model_based_opt::add_lower_bound(unsigned x, rational const& lo) {
         vector<var> coeffs;
         coeffs.push_back(var(x, rational::minus_one()));
         add_constraint(coeffs, lo, t_le);
     }
 
+    // x - hi <= 0
     void model_based_opt::add_upper_bound(unsigned x, rational const& hi) {
         vector<var> coeffs;
         coeffs.push_back(var(x, rational::one()));
@@ -1038,7 +1070,7 @@ namespace opt {
     //       t0 <= s for each s (M inequalities).
     // If N >= M the construction is symmetric.
     // 
-    model_based_opt::def model_based_opt::project(unsigned x, bool compute_def) {
+    model_based_opt::def_ref model_based_opt::project(unsigned x, bool compute_def) {
         unsigned_vector& lub_rows = m_lub;
         unsigned_vector& glb_rows = m_glb;
         unsigned_vector& divide_rows = m_divides;
@@ -1112,7 +1144,7 @@ namespace opt {
         if (eq_row != UINT_MAX) 
             return solve_for(eq_row, x, compute_def);
 
-        def result;
+        def_ref result(nullptr);
         unsigned lub_size = lub_rows.size();
         unsigned glb_size = glb_rows.size();
         unsigned row_index = (lub_size <= glb_size) ? lub_index : glb_index;
@@ -1125,8 +1157,8 @@ namespace opt {
                 else if (glb_index != UINT_MAX) 
                     result = solve_for(glb_index, x, true);                                
                 else 
-                    result = def() + m_var2value[x];                
-                SASSERT(eval(result) == eval(x));
+                    result = alloc(const_def, m_var2value[x]);                
+                SASSERT(eval(*result) == eval(x));
             }
             else {
                 for (unsigned row_id : lub_rows) retire_row(row_id);
@@ -1139,9 +1171,10 @@ namespace opt {
         SASSERT(glb_index != UINT_MAX);
         if (compute_def) {
             if (lub_size <= glb_size) 
-                result = def(m_rows[lub_index], x);            
+                result = def::from_row(m_rows[lub_index], x);            
             else 
-                result = def(m_rows[glb_index], x);            
+                result = def::from_row(m_rows[glb_index], x);
+            TRACE("opt1", display(tout << "resolution result:", *result) << "\n");
         }
 
         // The number of matching lower and upper bounds is small.
@@ -1234,11 +1267,11 @@ namespace opt {
     // where k is between 0 and g
     // when gcd(a, K) = 1, then there are only two cases.
     // 
-    model_based_opt::def model_based_opt::solve_mod_div(unsigned x, unsigned_vector const& _mod_rows, unsigned_vector const& _div_rows, bool compute_def) {
-        def result;
+    model_based_opt::def_ref model_based_opt::solve_mod_div(unsigned x, unsigned_vector const& _mod_rows, unsigned_vector const& _div_rows, bool compute_def) {
+        def_ref result(nullptr);
         unsigned_vector div_rows(_div_rows), mod_rows(_mod_rows);
         SASSERT(!div_rows.empty() || !mod_rows.empty());
-        TRACE("opt", display(tout << "solve_div " << x << "\n"));
+        TRACE("opt", display(tout << "solve_div v" << x << "\n"));
 
         rational K(1);
         for (unsigned ri : div_rows)
@@ -1278,12 +1311,11 @@ namespace opt {
         }
         mod_rows.shrink(j);
 
-
         // replace x by K*y + z in other rows.
         for (unsigned ri : m_var2row_ids[x]) {
             if (visited.contains(ri))
-                continue;
-            replace_var(ri, x, K, y, rational::one(), z);
+                continue;         
+            replace_var(ri, x, K, y, rational::one(), z);           
             visited.insert(ri);
             normalize(ri);
         }
@@ -1292,7 +1324,6 @@ namespace opt {
         add_lower_bound(z, rational::zero());
         add_upper_bound(z, K - 1);
         
-
         // solve for x_value = K*y_value + z_value, 0 <= z_value < K.
 
         unsigned_vector vs;
@@ -1381,8 +1412,9 @@ namespace opt {
         for (unsigned ri : mod_rows) {
             rational a = get_coefficient(ri, x);
             replace_var(ri, x, rational::zero());
+            rational rMod = m_rows[ri].m_mod;
 
-            // add w = b mod K
+            // add w = b mod rMod
             vector<var> coeffs = m_rows[ri].m_vars;
             rational coeff = m_rows[ri].m_coeff;
             unsigned v = m_rows[ri].m_id;
@@ -1390,16 +1422,46 @@ namespace opt {
 
             unsigned w = UINT_MAX;
             rational offset(0);
-            if (coeffs.empty() || K == 1)
-                offset = mod(coeff, K);
+            if (coeffs.empty() || rMod == 1)
+                offset = mod(coeff, rMod);
             else
-                w = add_mod(coeffs, coeff, K);
+                w = add_mod(coeffs, coeff, rMod);
 
 
             rational w_value = w == UINT_MAX ? offset : m_var2value[w];
 
-            // add v = a*z + w - V, for k = (a*z_value + w_value) div K
-            // claim: (= (mod x K) (- x (* K (div x K)))))) is a theorem for every x, K != 0
+#if 0
+            // V := (a * z_value + w_value) div rMod
+            // V*rMod <= a*z + w < (V+1)*rMod
+            // v = a*z + w - V*rMod
+            SASSERT(a > 0);
+            SASSERT(z_value >= 0);
+            SASSERT(w_value >= 0);
+            SASSERT(a * z_value + w_value >= 0);
+            rational V = div(a * z_value + w_value, rMod);
+            vector<var> mod_coeffs;
+            SASSERT(V >= 0);
+            SASSERT(a * z_value + w_value >= V*rMod);
+            SASSERT((V+1)*rMod > a*z_value + w_value);
+            // -a*z - w + V*rMod <= 0
+            mod_coeffs.push_back(var(z, -a));
+            if (w != UINT_MAX) mod_coeffs.push_back(var(w, -rational::one()));
+            add_constraint(mod_coeffs, V*rMod - offset, t_le);
+            mod_coeffs.reset();
+            // a*z + w - (V+1)*rMod + 1 <= 0
+            mod_coeffs.push_back(var(z, a));
+            if (w != UINT_MAX) mod_coeffs.push_back(var(w, rational::one()));
+            add_constraint(mod_coeffs, -(V+1)*rMod + offset + 1, t_le); 
+            mod_coeffs.reset();
+            // -v + a*z + w - V*rMod = 0
+            mod_coeffs.push_back(var(v, rational::minus_one()));
+            mod_coeffs.push_back(var(z, a));
+            if (w != UINT_MAX) mod_coeffs.push_back(var(w, rational::one()));
+            add_constraint(mod_coeffs, offset - V*rMod, t_eq);
+
+#else
+            // add v = a*z + w - V, for V = v_value - a * z_value - w_value
+            // claim: (= (mod x rMod) (- x (* rMod (div x rMod)))))) is a theorem for every x, rMod != 0
             rational V = v_value - a * z_value - w_value;
             vector<var> mod_coeffs;
             mod_coeffs.push_back(var(v, rational::minus_one()));
@@ -1407,24 +1469,34 @@ namespace opt {
             if (w != UINT_MAX) mod_coeffs.push_back(var(w, rational::one()));
             add_constraint(mod_coeffs, V + offset, t_eq);
             add_lower_bound(v, rational::zero());
-            add_upper_bound(v, K - 1);
+            add_upper_bound(v, rMod - 1);
+#endif
 
             retire_row(ri);
             vs.push_back(v);
         }
 
 
-        for (unsigned v : vs)
-            project(v, false);
-
+        for (unsigned v : vs) {
+            def_ref v_def = project(v, compute_def);
+            if (compute_def)
+                eliminate(v, *v_def);
+        }
+                      
         // project internal variables.
-
-        def y_def = project(y, compute_def);
-        def z_def = project(z, compute_def);
+        def_ref z_def = project(z, compute_def);
+        def_ref y_def = project(y, compute_def); // may depend on z
 
         if (compute_def) {
-            result = (y_def * K) + z_def;
-            m_var2value[x] = eval(result);
+            z_def = z_def->substitute(y, *y_def);
+            eliminate(y, *y_def);
+            eliminate(z, *z_def);
+
+            result = *(*y_def * K) + *z_def;
+            m_var2value[x] = eval(*result);
+            TRACE("opt", tout << y << " := " << *y_def << "\n";
+                         tout << z << " := " << *z_def << "\n";
+                         tout << x << " := " << *result << "\n");
         }
         TRACE("opt", display(tout << "solve_div done v" << x << "\n"));
         return result;
@@ -1445,7 +1517,7 @@ namespace opt {
     // x := D*x' + u
     // 
 
-    model_based_opt::def model_based_opt::solve_divides(unsigned x, unsigned_vector const& divide_rows, bool compute_def) {
+    model_based_opt::def_ref model_based_opt::solve_divides(unsigned x, unsigned_vector const& divide_rows, bool compute_def) {
         SASSERT(!divide_rows.empty());
         rational D(1);
         for (unsigned idx : divide_rows) {
@@ -1487,13 +1559,13 @@ namespace opt {
             visited.insert(row_id);
             normalize(row_id);            
         }
-        TRACE("opt1", display(tout << "tableau after replace x by y := v" << y << "\n"););
-        def result = project(y, compute_def);
+        TRACE("opt1", display(tout << "tableau after replace v" << x << " := " << D << " * v" << y << "\n"););
+        def_ref result = project(y, compute_def);
         if (compute_def) {
-            result = (result * D) + u;
-            m_var2value[x] = eval(result);
+            result = *(*result * D) + u;
+            m_var2value[x] = eval(*result);
         }
-        TRACE("opt1", display(tout << "tableau after project y" << y << "\n"););
+        TRACE("opt1", display(tout << "tableau after project v" << y << "\n"););
 	
         return result;
     }
@@ -1558,7 +1630,7 @@ namespace opt {
     // 3x + t = 0 & 7 | (c*x + s) & ax <= u 
     // 3 | -t  & 21 | (-ct + 3s) & a-t <= 3u
 
-    model_based_opt::def model_based_opt::solve_for(unsigned row_id1, unsigned x, bool compute_def) {
+    model_based_opt::def_ref model_based_opt::solve_for(unsigned row_id1, unsigned x, bool compute_def) {
         TRACE("opt", tout << "v" << x << " := " << eval(x) << "\n" << m_rows[row_id1] << "\n";
         display(tout));
         rational a = get_coefficient(row_id1, x), b;
@@ -1614,24 +1686,32 @@ namespace opt {
                 break;
             }
         }
-        def result;
+        def_ref result(nullptr);
         if (compute_def) {
-            result = def(m_rows[row_id1], x);
-            m_var2value[x] = eval(result);
+            result = def::from_row(m_rows[row_id1], x);
+            m_var2value[x] = eval(*result);
             TRACE("opt1", tout << "updated eval " << x << " := " << eval(x) << "\n";);
         }
         retire_row(row_id1);
         TRACE("opt", display(tout << "solved v" << x << "\n"));
         return result;
     }
+
+    void model_based_opt::eliminate(unsigned v, def& new_def) {
+        for (auto & d : m_result)
+            if (d)
+                d = d->substitute(v, new_def);
+    }
     
-    vector<model_based_opt::def> model_based_opt::project(unsigned num_vars, unsigned const* vars, bool compute_def) {
-        vector<def> result;
+    vector<model_based_opt::def_ref> model_based_opt::project(unsigned num_vars, unsigned const* vars, bool compute_def) {
+        m_result.reset();
         for (unsigned i = 0; i < num_vars; ++i) {
-            result.push_back(project(vars[i], compute_def));
+            m_result.push_back(project(vars[i], compute_def));
+            if (compute_def)
+                eliminate(vars[i], *(m_result.back()));
             TRACE("opt", display(tout << "After projecting: v" << vars[i] << "\n"););
         }
-        return result;
+        return m_result;
     }
 
 }

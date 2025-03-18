@@ -65,7 +65,7 @@ bool macro_finder::is_arith_macro(expr * n, proof * pr, bool deps_valid, expr_de
     // functions introduced within macros are Skolem functions
     // To avoid unsound expansion of these as macros (because they 
     // appear in model conversions and are therefore not fully
-    // replacable) we prevent these from being treated as macro functions.
+    // replaceable) we prevent these from being treated as macro functions.
     if (m_macro_manager.contains(f) || f->is_skolem())
         return false;
 
@@ -269,9 +269,6 @@ macro_finder::macro_finder(ast_manager & m, macro_manager & mm):
     m_autil(m) {
 }
 
-macro_finder::~macro_finder() {
-}
-
 bool macro_finder::expand_macros(expr_ref_vector const& exprs, proof_ref_vector const& prs, expr_dependency_ref_vector const& deps,  expr_ref_vector & new_exprs, proof_ref_vector & new_prs, expr_dependency_ref_vector & new_deps) {
     TRACE("macro_finder", tout << "starting expand_macros:\n";
           m_macro_manager.display(tout););
@@ -349,8 +346,8 @@ bool macro_finder::expand_macros(unsigned num, justified_expr const * fmls, vect
           m_macro_manager.display(tout););
     bool found_new_macro = false;
     for (unsigned i = 0; i < num; i++) {
-        expr * n       = fmls[i].get_fml();
-        proof * pr     = m.proofs_enabled() ? fmls[i].get_proof() : nullptr;
+        expr * n       = fmls[i].fml();
+        proof * pr     = m.proofs_enabled() ? fmls[i].pr() : nullptr;
         expr_ref new_n(m), def(m);
         proof_ref new_pr(m);
         expr_dependency_ref new_dep(m);

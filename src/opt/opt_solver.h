@@ -29,7 +29,7 @@ Notes:
 #include "smt/params/smt_params.h"
 #include "smt/smt_types.h"
 #include "smt/theory_opt.h"
-#include "tactic/generic_model_converter.h"
+#include "ast/converters/generic_model_converter.h"
 
 namespace opt {
 
@@ -85,7 +85,6 @@ namespace opt {
         bool                m_was_unknown;
     public:
         opt_solver(ast_manager & m, params_ref const & p, generic_model_converter& fm);
-        ~opt_solver() override;
 
         solver* translate(ast_manager& m, params_ref const& p) override;
         void updt_params(params_ref const& p) override;
@@ -97,7 +96,7 @@ namespace opt {
         lbool check_sat_core2(unsigned num_assumptions, expr * const * assumptions) override;
         void get_unsat_core(expr_ref_vector & r) override;
         void get_model_core(model_ref & _m) override;
-        proof * get_proof() override;
+        proof * get_proof_core() override;
         std::string reason_unknown() const override;
         void set_reason_unknown(char const* msg) override;
         void get_labels(svector<symbol> & r) override;
@@ -110,10 +109,14 @@ namespace opt {
         void get_levels(ptr_vector<expr> const& vars, unsigned_vector& depth) override; 
         expr_ref_vector get_trail(unsigned max_level) override { return m_context.get_trail(max_level); }
         expr_ref_vector cube(expr_ref_vector&, unsigned) override { return expr_ref_vector(m); }
+        expr* congruence_root(expr* e) override { return e; }
+        expr* congruence_next(expr* e) override { return e; }
+        expr_ref congruence_explain(expr* a, expr* b) override { return expr_ref(m.mk_eq(a, b), m); }
         void set_phase(expr* e) override { m_context.set_phase(e); }
         phase* get_phase() override { return m_context.get_phase(); }
         void set_phase(phase* p) override { m_context.set_phase(p); }
         void move_to_front(expr* e) override { m_context.move_to_front(e); }
+        void user_propagate_initialize_value(expr* var, expr* value) override { m_context.user_propagate_initialize_value(var, value); }
 
         void set_logic(symbol const& logic);
 

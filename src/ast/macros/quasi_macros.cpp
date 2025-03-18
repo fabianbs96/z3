@@ -31,9 +31,6 @@ quasi_macros::quasi_macros(ast_manager & m, macro_manager & mm) :
   m_new_qsorts(m) {
 }
 
-quasi_macros::~quasi_macros() {
-}
-
 void quasi_macros::find_occurrences(expr * e) {
     unsigned j;
     m_todo.reset();
@@ -114,10 +111,9 @@ bool quasi_macros::fully_depends_on(app * a, quantifier * q) const {
         if (is_var(arg))
              bitset.set(to_var(arg)->get_idx(), true);
 
-    for (unsigned i = 0; i < bitset.size() ; i++) {
+    for (unsigned i = 0; i < bitset.size() ; i++) 
         if (!bitset.get(i))
-            return false;
-    }
+            return false;    
 
     return true;
 }
@@ -167,18 +163,18 @@ bool quasi_macros::is_quasi_macro(expr * e, app_ref & a, expr_ref & t) const {
         quantifier * q = to_quantifier(e);
         expr * qe = q->get_expr(), *lhs = nullptr, *rhs = nullptr;
         if (m.is_eq(qe, lhs, rhs)) {
-	  if (is_quasi_def(q, lhs, rhs)) {
+            if (is_quasi_def(q, lhs, rhs)) {
 	        a = to_app(lhs);
                 t = rhs;
                 return true;
-	  } else if (is_quasi_def(q, rhs, lhs)) {
+            } else if (is_quasi_def(q, rhs, lhs)) {
 	        a = to_app(rhs);
                 t = lhs;
                 return true;
             }
         }
 	else if (m.is_not(qe, lhs) && is_non_ground_uninterp(lhs) &&
-                   is_unique(to_app(lhs)->get_decl())) { // this is like f(...) = false
+                 is_unique(to_app(lhs)->get_decl())) { // this is like f(...) = false
             a = to_app(lhs);
             t = m.mk_false();
             return true;
@@ -189,8 +185,8 @@ bool quasi_macros::is_quasi_macro(expr * e, app_ref & a, expr_ref & t) const {
             return true;
         }
 	else if (m.is_not(qe, lhs) && m.is_eq(lhs, lhs, rhs) && m.is_bool(lhs)) {
-	  if (is_quasi_def(q, lhs, rhs)) {
-	        a = to_app(lhs);
+            if (is_quasi_def(q, lhs, rhs)) {
+                a = to_app(lhs);
                 t = m.mk_not(rhs);
                 return true;
             } else if (is_quasi_def(q, rhs, lhs)) {
@@ -317,14 +313,14 @@ bool quasi_macros::find_macros(unsigned n, expr * const * exprs) {
 bool quasi_macros::find_macros(unsigned n, justified_expr const * exprs) {
     TRACE("quasi_macros", tout << "Finding quasi-macros in: " << std::endl;
           for (unsigned i = 0; i < n; i++)
-              tout << i << ": " << mk_pp(exprs[i].get_fml(), m) << std::endl; );
+              tout << i << ": " << mk_pp(exprs[i].fml(), m) << std::endl; );
     bool res = false;
     m_occurrences.reset();
 
 
     // Find out how many non-ground appearances for each uninterpreted function there are
     for (unsigned i = 0 ; i < n ; i++)
-        find_occurrences(exprs[i].get_fml());
+        find_occurrences(exprs[i].fml());
 
     TRACE("quasi_macros", tout << "Occurrences: " << std::endl;
           for (auto kv : m_occurrences) 
@@ -335,9 +331,9 @@ bool quasi_macros::find_macros(unsigned n, justified_expr const * exprs) {
         app_ref a(m);
         expr_ref t(m);
         quantifier_ref macro(m);
-        if (is_quasi_macro(exprs[i].get_fml(), a, t) && 
-            quasi_macro_to_macro(to_quantifier(exprs[i].get_fml()), a, t, macro)) {
-            TRACE("quasi_macros", tout << "Found quasi macro: " << mk_pp(exprs[i].get_fml(), m) << std::endl;
+        if (is_quasi_macro(exprs[i].fml(), a, t) && 
+            quasi_macro_to_macro(to_quantifier(exprs[i].fml()), a, t, macro)) {
+            TRACE("quasi_macros", tout << "Found quasi macro: " << mk_pp(exprs[i].fml(), m) << std::endl;
                                   tout << "Macro: " << mk_pp(macro, m) << std::endl; );
             proof * pr = nullptr;
             if (m.proofs_enabled())
@@ -381,9 +377,9 @@ void quasi_macros::apply_macros(unsigned n, justified_expr const* fmls, vector<j
     for (unsigned i = 0 ; i < n ; i++) {
         expr_ref r(m), rr(m);
         proof_ref pr(m), prr(m);
-        proof * p = m.proofs_enabled() ? fmls[i].get_proof() : nullptr;
+        proof * p = m.proofs_enabled() ? fmls[i].pr() : nullptr;
         expr_dependency_ref dep(m);
-        m_macro_manager.expand_macros(fmls[i].get_fml(), p, nullptr, r, pr, dep);
+        m_macro_manager.expand_macros(fmls[i].fml(), p, nullptr, r, pr, dep);
         m_rewriter(r, rr, prr);
         if (pr) pr = m.mk_modus_ponens(pr, prr);
         new_fmls.push_back(justified_expr(m, rr, pr));

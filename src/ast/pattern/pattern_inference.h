@@ -20,6 +20,7 @@ Revision History:
 
 #include "ast/ast.h"
 #include "ast/rewriter/rewriter.h"
+#include "ast/rewriter/rewriter_def.h"
 #include "params/pattern_inference_params.h"
 #include "util/vector.h"
 #include "util/uint_set.h"
@@ -69,6 +70,7 @@ class pattern_inference_cfg :  public default_rewriter_cfg {
     expr * const *             m_no_patterns;
     bool                       m_nested_arith_only;
     bool                       m_block_loop_patterns;
+    bool                       m_decompose_patterns;
 
     struct info {
         uint_set m_free_vars;
@@ -112,9 +114,9 @@ class pattern_inference_cfg :  public default_rewriter_cfg {
     //
     class collect {
         struct entry {
-            expr *    m_node;
-            unsigned  m_delta;
-            entry():m_node(nullptr), m_delta(0) {}
+            expr *    m_node = nullptr;
+            unsigned  m_delta = 0;
+            entry() = default;
             entry(expr * n, unsigned d):m_node(n), m_delta(d) {}
             unsigned hash() const { 
                 return hash_u_u(m_node->get_id(), m_delta);
@@ -134,8 +136,8 @@ class pattern_inference_cfg :  public default_rewriter_cfg {
         
         ast_manager &            m;
         pattern_inference_cfg &     m_owner;
-        family_id                m_afid;
-        unsigned                 m_num_bindings;
+        family_id                m_afid = null_family_id;
+        unsigned                 m_num_bindings = 0;
         typedef map<entry, info *, obj_hash<entry>, default_eq<entry> > cache;
         cache                    m_cache;
         ptr_vector<info>         m_info;
@@ -187,6 +189,9 @@ class pattern_inference_cfg :  public default_rewriter_cfg {
 
     ptr_vector<pre_pattern>      m_pre_patterns;
     expr_pattern_match           m_database;
+
+    ptr_buffer<app> m_args;
+    app* mk_pattern(app* candidate);
 
     void candidates2unary_patterns(ptr_vector<app> const & candidate_patterns,
                                    ptr_vector<app> & remaining_candidate_patterns,

@@ -50,7 +50,7 @@ namespace smt {
 
         ~kernel();
 
-        static void copy(kernel& src, kernel& dst);
+        static void copy(kernel& src, kernel& dst, bool override_base);
 
         ast_manager & m() const;
         
@@ -239,6 +239,16 @@ namespace smt {
         */
         expr_ref_vector cubes(unsigned depth);
 
+        /**
+           \brief access congruence closure
+        */
+        expr* congruence_next(expr* e);
+
+        expr* congruence_root(expr* e);
+
+        expr_ref congruence_explain(expr* a, expr* b);
+
+        void solve_for(vector<solver::solution>& s);
 
         /**
            \brief retrieve depth of variables from decision stack.
@@ -251,7 +261,7 @@ namespace smt {
         expr_ref_vector get_trail(unsigned max_level);
 
         /**
-           \brief (For debubbing purposes) Prints the state of the kernel
+           \brief (For debugging purposes) Prints the state of the kernel
         */
         std::ostream& display(std::ostream & out) const;
 
@@ -290,6 +300,8 @@ namespace smt {
         */
         static void collect_param_descrs(param_descrs & d);
 
+        void register_on_clause(void* ctx, user_propagator::on_clause_eh_t& on_clause);
+
         /**
            \brief initialize a user-propagator "theory"
         */
@@ -312,6 +324,8 @@ namespace smt {
         void user_propagate_register_created(user_propagator::created_eh_t& r);
 
         void user_propagate_register_decide(user_propagator::decide_eh_t& r);
+
+        void user_propagate_initialize_value(expr* var, expr* value);
 
         /**
            \brief Return a reference to smt::context.

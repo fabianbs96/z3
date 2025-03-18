@@ -177,9 +177,6 @@ namespace smt {
         m_lazy(true) {
     }
 
-    theory::~theory() {
-    }
-
     smt_params const& theory::get_fparams() const { 
         return ctx.get_fparams();
     }
@@ -214,7 +211,7 @@ namespace smt {
         symbol const & family_name = m.get_family_name(get_family_id());
 
         if (pattern_id == UINT_MAX) {
-            out << "[inst-discovered] theory-solving " << static_cast<void *>(nullptr) << " " << family_name << "#";
+            out << "[inst-discovered] theory-solving 0x0 " << family_name << "#";
             if (axiom_id != UINT_MAX)
                 out << axiom_id;
             for (unsigned i = 0; i < num_bindings; ++i) {

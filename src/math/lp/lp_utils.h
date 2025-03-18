@@ -86,8 +86,22 @@ bool is_non_decreasing(const K& v) {
 
 template <typename T>
 std::ostream& print_linear_combination_customized(const vector<std::pair<T, unsigned>> & coeffs, std::function<std::string (unsigned)> var_str, std::ostream & out) {
+    if (coeffs.size() == 0) {
+        out << "0";
+        return out;
+    }
+    // Copy term to a std_vector and sort by p.j()
+    std_vector<std::pair<T, unsigned>> sorted_coeffs;
+    sorted_coeffs.reserve(coeffs.size());
+    for (const auto& p : coeffs) {
+        sorted_coeffs.emplace_back(p.first, p.second);
+    }
+    std::sort(sorted_coeffs.begin(), sorted_coeffs.end(), 
+             [](const auto& a, const auto& b) { return a.second < b.second; });
+
+    // Print the sorted term
     bool first = true;
-    for (const auto & it : coeffs) {
+    for (const auto & it : sorted_coeffs) {
         T val = it.first;
         if (first) {
             first = false;
@@ -116,12 +130,9 @@ template <typename T>
 std::ostream& print_linear_combination_of_column_indices_only(const vector<std::pair<T, unsigned>> & coeffs, std::ostream & out) {
     return print_linear_combination_customized(
         coeffs,
-        [](unsigned j) {std::stringstream ss;
-            if (tv::is_term(j)) {
-                ss << "t" << tv::unmask_term(j);
-            } else {
-                ss << "j" << j;
-            }
+        [](unsigned j) {
+            std::stringstream ss;
+            ss << "j" << j;
             return ss.str();},
         out); 
 }
@@ -141,7 +152,6 @@ inline void throw_exception(std::string && str) {
 typedef z3_exception exception;
 
 #define lp_assert(_x_) { SASSERT(_x_); }
-inline void lp_unreachable() { lp_assert(false); }
 template <typename X> inline X zero_of_type() { return numeric_traits<X>::zero(); }
 template <typename X> inline X one_of_type() { return numeric_traits<X>::one(); }
 template <typename X> inline bool is_zero(const X & v) { return numeric_traits<X>::is_zero(v); }
@@ -151,9 +161,6 @@ template <typename X> inline bool is_integer(const X & v) { return numeric_trait
 
 template <typename X> inline X ceil_ratio(const X & a, const X & b) { return numeric_traits<X>::ceil_ratio(a, b); }
 template <typename X> inline X floor_ratio(const X & a, const X & b) { return numeric_traits<X>::floor_ratio(a, b); }
-
-
-template <typename X> inline bool precise() { return numeric_traits<X>::precise(); }
 
 
 // returns true if a factor of b

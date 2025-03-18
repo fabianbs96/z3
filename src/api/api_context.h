@@ -50,6 +50,11 @@ namespace realclosure {
     class manager;
 };
 
+namespace smt2 {
+    class parser;
+    void free_parser(parser*);
+};
+
 namespace api {
        
     class seq_expr_solver : public expr_solver {
@@ -194,9 +199,7 @@ namespace api {
 
         // Store a copy of str in m_string_buffer, and return a reference to it.
         // This method is used to communicate local/internal strings with the "external world"
-        char * mk_external_string(char const * str, unsigned n);
-        char * mk_external_string(char const * str);
-        char * mk_external_string(std::string && str);
+        const char * mk_external_string(std::string && str);
         sbuffer<char>              m_char_buffer;
 
 
@@ -226,12 +229,25 @@ namespace api {
         void handle_exception(z3_exception & ex);
         char const * get_exception_msg() const { return m_exception_msg.c_str(); }
 
-        // Interrupt the current interruptable object
+        // Interrupt the current interruptible object
         void interrupt();
 
         void invoke_error_handler(Z3_error_code c);
 
         void check_sorts(ast * n);
+
+
+        // ------------------------------------------------
+        //
+        // State reused by calls to Z3_eval_smtlib2_string
+        //
+        // ------------------------------------------------
+        //
+        // The m_parser field is reused by all calls of Z3_eval_smtlib2_string using this context.
+        // It is an optimization to save the cost of recreating these objects on each invocation.
+        //
+        // See https://github.com/Z3Prover/z3/pull/6422 for the motivation
+        smt2::parser*                m_parser = nullptr;
 
         // ------------------------
         //

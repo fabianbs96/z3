@@ -9,9 +9,9 @@ namespace user_propagator {
     class callback {
     public:
         virtual ~callback() = default;
-        virtual void propagate_cb(unsigned num_fixed, expr* const* fixed_ids, unsigned num_eqs, expr* const* eq_lhs, expr* const* eq_rhs, expr* conseq) = 0;
+        virtual bool propagate_cb(unsigned num_fixed, expr* const* fixed_ids, unsigned num_eqs, expr* const* eq_lhs, expr* const* eq_rhs, expr* conseq) = 0;
         virtual void register_cb(expr* e) = 0;
-        virtual void next_split_cb(expr* e, unsigned idx, lbool phase) = 0;
+        virtual bool next_split_cb(expr* e, unsigned idx, lbool phase) = 0;
     };
     
     class context_obj {
@@ -26,7 +26,8 @@ namespace user_propagator {
     typedef std::function<void(void*, callback*)>                            push_eh_t;
     typedef std::function<void(void*, callback*, unsigned)>                  pop_eh_t;
     typedef std::function<void(void*, callback*, expr*)>                     created_eh_t;
-    typedef std::function<void(void*, callback*, expr**, unsigned*, lbool*)> decide_eh_t;
+    typedef std::function<void(void*, callback*, expr*, unsigned, bool)>     decide_eh_t;
+    typedef std::function<void(void*, expr*, unsigned, unsigned const*, unsigned, expr* const*)>        on_clause_eh_t;
 
     class plugin : public decl_plugin {
     public:
@@ -92,6 +93,14 @@ namespace user_propagator {
         }
 
         virtual void user_propagate_clear() {
+        }
+
+        virtual void register_on_clause(void*, on_clause_eh_t& r) { 
+            throw default_exception("clause logging is only supported on the SMT solver");
+        }
+
+        virtual void user_propagate_initialize_value(expr* var, expr* value) {
+            throw default_exception("value initialization is only supported on the SMT solver");            
         }
 
        

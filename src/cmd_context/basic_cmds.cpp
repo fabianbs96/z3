@@ -177,10 +177,10 @@ ATOMIC_CMD(get_proof_cmd, "get-proof", "retrieve proof", {
     if (!ctx.has_manager())
         throw cmd_exception("proof is not available");
 
-    if (ctx.ignore_check())
-        return;
     expr_ref pr(ctx.m());
     auto* chsr = ctx.get_check_sat_result();
+    if (!chsr && ctx.ignore_check())
+        return;
     if (!chsr)
         throw cmd_exception("proof is not available");
     pr = chsr->get_proof();
@@ -202,6 +202,7 @@ ATOMIC_CMD(get_proof_cmd, "get-proof", "retrieve proof", {
         cmd_is_declared isd(ctx);
         pp.set_is_declared(&isd);
         pp.set_logic(ctx.get_logic());
+        pp.set_simplify_implies(params.simplify_implies());
         pp.display_smt2(ctx.regular_stream(), pr);
         ctx.regular_stream() << std::endl;
     }
@@ -317,6 +318,22 @@ UNARY_CMD(echo_cmd, "echo", "<string>", "display the given string", CPK_STRING, 
           else
               ctx.regular_stream() << arg << std::endl;);
 
+class set_initial_value_cmd : public cmd {
+    expr* m_var = nullptr, *m_value = nullptr;
+public:
+    set_initial_value_cmd(): cmd("set-initial-value") {}
+    char const* get_usage() const override { return "<var> <value>"; }
+    char const* get_descr(cmd_context& ctx) const override { return "set an initial value for search as a hint to the solver"; }
+    unsigned get_arity() const override { return 2; }
+    void prepare(cmd_context& ctx) override { m_var = m_value = nullptr; }
+    cmd_arg_kind next_arg_kind(cmd_context& ctx) const override { return CPK_EXPR; }
+    void set_next_arg(cmd_context& ctx, expr* e) override { if (m_var) m_value = e; else m_var = e; }
+    void execute(cmd_context& ctx) override {
+        SASSERT(m_var && m_value);
+        ctx.set_initial_value(m_var, m_value);
+    }    
+};
+
 class set_get_option_cmd : public cmd {
 protected:
     symbol      m_true;
@@ -416,13 +433,13 @@ class set_option_cmd : public set_get_option_cmd {
     }
 
     void set_param(cmd_context & ctx, char const * value) {
-        try {
+        try {            
             gparams::set(m_option, value);
             env_params::updt_params();
             ctx.global_params_updated();
         }
         catch (const gparams::exception & ex) {
-            throw cmd_exception(ex.msg());
+            throw cmd_exception(ex.what());
         }
     }
 
@@ -450,7 +467,7 @@ class set_option_cmd : public set_get_option_cmd {
             ctx.set_produce_unsat_cores(to_bool(value));
         }
         else if (m_option == m_produce_unsat_assumptions) {
-            check_not_initialized(ctx, m_produce_unsat_assumptions);
+            check_no_assertions(ctx, m_produce_unsat_assumptions);
             ctx.set_produce_unsat_assumptions(to_bool(value));
         }
         else if (m_option == m_produce_models) {
@@ -609,6 +626,9 @@ public:
         else if (opt == m_produce_assignments) {
             print_bool(ctx, ctx.produce_assignments());
         }
+        else if (opt == m_produce_unsat_assumptions) {
+            print_bool(ctx, ctx.produce_unsat_assumptions());
+        }
         else if (opt == m_global_decls || opt == m_global_declarations) {
             print_bool(ctx, ctx.global_decls());
         }
@@ -673,7 +693,7 @@ public:
         m_rlimit(":rlimit") {
     }
     char const * get_usage() const override { return "<keyword>"; }
-    char const * get_descr(cmd_context & ctx) const override { return "get information."; }
+    char const * get_descr(cmd_context & ctx) const override { return "(get-info :?) for options."; }
     unsigned get_arity() const override { return 1; }
     cmd_arg_kind next_arg_kind(cmd_context & ctx) const override { return CPK_KEYWORD; }
     void set_next_arg(cmd_context & ctx, symbol const & opt) override {
@@ -687,7 +707,7 @@ public:
             ctx.regular_stream() << "(:name \"Z3\")" << std::endl;
         }
         else if (opt == m_authors) {
-            ctx.regular_stream() << "(:authors \"Leonardo de Moura, Nikolaj Bjorner and Christoph Wintersteiger\")" << std::endl;
+            ctx.regular_stream() << "(:authors \"Leonardo de Moura, Nikolaj Bjorner, Lev Nachmanson and Christoph Wintersteiger\")" << std::endl;
         }
         else if (opt == m_version) {
             ctx.regular_stream() << "(:version \"" << Z3_MAJOR_VERSION << "." << Z3_MINOR_VERSION << "." << Z3_BUILD_NUMBER
@@ -711,8 +731,21 @@ public:
         else if (opt == m_assertion_stack_levels) {
             ctx.regular_stream() << "(:assertion-stack-levels " << ctx.num_scopes() << ")" << std::endl;
         }
+        else if (opt == symbol(":parameters")) {
+            ctx.display_parameters(ctx.regular_stream());
+        }
         else {
-            ctx.print_unsupported(opt, m_line, m_pos);
+            if (opt != symbol(":?"))
+               ctx.print_unsupported(opt, m_line, m_pos);
+            ctx.regular_stream() << "; Suppported get-info parameters:\n";
+            ctx.regular_stream() << "; (get-info :reason-unknown)\n";
+            ctx.regular_stream() << "; (get-info :status)\n";
+            ctx.regular_stream() << "; (get-info :version)\n";
+            ctx.regular_stream() << "; (get-info :authors)\n";
+            ctx.regular_stream() << "; (get-info :error-behavior)\n";
+            ctx.regular_stream() << "; (get-info :parameters)\n";
+            ctx.regular_stream() << "; (get-info :rlimit)\n";
+            ctx.regular_stream() << "; (get-info :assertion-stack-levels)\n";
         }
     }
 };
@@ -892,6 +925,7 @@ void install_basic_cmds(cmd_context & ctx) {
     ctx.insert(alloc(get_option_cmd));
     ctx.insert(alloc(get_info_cmd));
     ctx.insert(alloc(set_info_cmd));
+    ctx.insert(alloc(set_initial_value_cmd));
     ctx.insert(alloc(get_consequences_cmd));
     ctx.insert(alloc(builtin_cmd, "assert", "<term>", "assert term."));
     ctx.insert(alloc(builtin_cmd, "check-sat", "<boolean-constants>*", "check if the current context is satisfiable. If a list of boolean constants B is provided, then check if the current context is consistent with assigning every constant in B to true."));

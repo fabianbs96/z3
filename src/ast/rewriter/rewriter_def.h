@@ -105,7 +105,7 @@ bool rewriter_tpl<Config>::process_const(app * t0) {
             return true;
         }
         m_r = t;
-        // fall through
+        Z3_fallthrough;      
     case BR_DONE:
         result_stack().push_back(m_r.get());
         if (ProofGen) {
@@ -638,10 +638,6 @@ rewriter_tpl<Config>::rewriter_tpl(ast_manager & m, bool proof_gen, Config & cfg
     m_r(m),
     m_pr(m),
     m_pr2(m) {
-}
-
-template<typename Config>
-rewriter_tpl<Config>::~rewriter_tpl() {
 }
 
 template<typename Config>

@@ -498,6 +498,8 @@ namespace smt {
             return p->get_arg(0)->get_root() == n->get_root();
         if (is_map(p))
             return true;
+        if (is_store(p))
+            return true;
         return false;
     }
 
@@ -527,7 +529,7 @@ namespace smt {
             // issue #3532, #3529
             // 
             if (ctx.is_shared(r) || is_select_arg(r)) {
-                TRACE("array", tout << "new shared var: #" << r->get_owner_id() << "\n";);
+                TRACE("array", tout << "new shared var: #" << r->get_owner_id() << " " << is_select_arg(r) << "\n";);
                 theory_var r_th_var = r->get_th_var(get_id());
                 SASSERT(r_th_var != null_theory_var);
                 result.push_back(r_th_var);
@@ -967,7 +969,6 @@ namespace smt {
     }
 
     model_value_proc * theory_array_base::mk_value(enode * n, model_generator & mg) {
-        SASSERT(ctx.is_relevant(n));
         theory_var v       = n->get_th_var(get_id());
         SASSERT(v != null_theory_var);
         sort * s           = n->get_expr()->get_sort();
@@ -997,7 +998,7 @@ namespace smt {
 
                     TRACE("array", tout << pp(n, m) << " " << mk_pp(range, m) << " " << range->is_infinite() << "\n";);
                     if (range->is_infinite())
-                        else_val = TAG(void*, mg.mk_extra_fresh_value(range), 1);
+                        else_val = TAG(void*, mg.mk_extra_fresh_value(n->get_expr(), range), 1);
                     else
                         else_val = TAG(void*, mg.get_some_value(range), 0);
                     m_else_values[r] = else_val;

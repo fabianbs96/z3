@@ -72,6 +72,7 @@ namespace q {
         unsigned                               m_max_choose_candidates = 10;
         unsigned                               m_generation_bound = UINT_MAX;
         unsigned                               m_generation_max = UINT_MAX;
+        symbol                                 m_mbqi = symbol("mbqi");
         typedef std::tuple<sat::literal, expr_ref, expr_ref_vector, unsigned> instantiation_t;
         vector<instantiation_t> m_instantiations;
         vector<mbp::def>        m_defs;
@@ -93,6 +94,7 @@ namespace q {
         void extract_free_vars(quantifier* q, q_body& qb);
         void init_model();
         void init_solver();
+        void assert_expr(expr* e);
         mbp::project_plugin* get_plugin(app* var);
         void add_plugin(mbp::project_plugin* p);
         void add_instantiation(quantifier* q, expr_ref& proj);

@@ -148,6 +148,28 @@ namespace Microsoft.Z3
                 Native.Z3_optimize_assert(Context.nCtx, NativeObject, a.NativeObject);
             }
         }
+
+        /// <summary>
+        /// Assert a constraint into the optimize solver, and track it (in the unsat) core 
+        /// using the Boolean constant p. 
+        /// </summary>
+        /// <remarks>
+        /// This API is an alternative to <see cref="Check(Expr[])"/> with assumptions for extracting unsat cores.
+        /// Both APIs can be used in the same solver. The unsat core will contain a combination
+        /// of the Boolean variables provided using <see cref="AssertAndTrack(BoolExpr[],BoolExpr[])"/> 
+        /// and the Boolean literals
+        /// provided using <see cref="Check(Expr[])"/> with assumptions.
+        /// </remarks>        
+        public void AssertAndTrack(BoolExpr constraint, BoolExpr p)
+        {
+            Debug.Assert(constraint != null);
+            Debug.Assert(p != null);
+            Context.CheckContextMatch(constraint);
+            Context.CheckContextMatch(p);
+                        
+            Native.Z3_optimize_assert_and_track(Context.nCtx, NativeObject, constraint.NativeObject, p.NativeObject);
+        }
+
         /// <summary>
         /// Handle to objectives returned by objective functions.
         /// </summary>
@@ -220,7 +242,7 @@ namespace Microsoft.Z3
         /// <summary>
         /// Check satisfiability of asserted constraints.
         /// Produce a model that (when the objectives are bounded and 
-        /// don't use strict inequalities) meets the objectives.
+        /// don't use strict inequalities) is optimal.
         /// </summary>
         ///
         public Status Check(params Expr[] assumptions)
@@ -440,31 +462,18 @@ namespace Microsoft.Z3
             Debug.Assert(ctx != null);
         }
 
-        internal class DecRefQueue : IDecRefQueue
-        {
-            public DecRefQueue() : base() { }
-            public DecRefQueue(uint move_limit) : base(move_limit) { }
-            internal override void IncRef(Context ctx, IntPtr obj)
-            {
-                Native.Z3_optimize_inc_ref(ctx.nCtx, obj);
-            }
-
-            internal override void DecRef(Context ctx, IntPtr obj)
-            {
-                Native.Z3_optimize_dec_ref(ctx.nCtx, obj);
-            }
-        };
-
         internal override void IncRef(IntPtr o)
         {
-            Context.Optimize_DRQ.IncAndClear(Context, o);
-            base.IncRef(o);
+            Native.Z3_optimize_inc_ref(Context.nCtx, o);
         }
 
         internal override void DecRef(IntPtr o)
         {
-            Context.Optimize_DRQ.Add(o);
-            base.DecRef(o);
+            lock (Context)
+            {
+                if (Context.nCtx != IntPtr.Zero)
+                    Native.Z3_optimize_dec_ref(Context.nCtx, o);
+            }
         }
         #endregion
     }

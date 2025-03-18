@@ -7,7 +7,7 @@ Module Name:
 
 Abstract:
 
-    Theory plugin for altegraic datatypes
+    Theory plugin for algebraic datatypes
 
 Author:
 
@@ -36,7 +36,7 @@ namespace dt {
         typedef sat::bool_var bool_var;
         typedef sat::literal literal;
         typedef sat::literal_vector literal_vector;
-        typedef union_find<solver, euf::solver>  dt_union_find;
+        typedef union_find<solver>  dt_union_find;
 
         struct var_data {
             ptr_vector<enode> m_recognizers; //!< recognizers of this equivalence class that are being watched.
@@ -116,7 +116,7 @@ namespace dt {
 
         void pop_core(unsigned n) override;
 
-        enode * oc_get_cstor(enode * n);
+        enode * oc_get_cstor(enode * n) const;
         bool occurs_check(enode * n);
         bool occurs_check_enter(enode * n);
         void occurs_check_explain(enode * top, enode * root);
@@ -154,8 +154,8 @@ namespace dt {
         void add_value(euf::enode* n, model& mdl, expr_ref_vector& values) override;
         bool add_dep(euf::enode* n, top_sort<euf::enode>& dep) override;
         bool include_func_interp(func_decl* f) const override;
-        sat::literal internalize(expr* e, bool sign, bool root, bool redundant) override;
-        void internalize(expr* e, bool redundant) override;
+        sat::literal internalize(expr* e, bool sign, bool root) override;
+        void internalize(expr* e) override;
         euf::theory_var mk_var(euf::enode* n) override;
         void apply_sort_cnstr(euf::enode* n, sort* s) override;
         bool is_shared(theory_var v) const override { return false; }

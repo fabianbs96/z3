@@ -1,7 +1,6 @@
 # 
 # Copyright (c) 2018 Microsoft Corporation
 #
-
 # 1. copy over dlls
 # 2. copy over libz3.dll for the different architectures
 # 3. copy over Microsoft.Z3.dll from suitable distribution
@@ -21,14 +20,19 @@ def mk_dir(d):
     if not os.path.exists(d):
         os.makedirs(d)
 
-os_info = {  'ubuntu-latest' : ('so', 'linux-x64'),
-             'ubuntu-18' : ('so', 'linux-x64'),
-             'ubuntu-20' : ('so', 'linux-x64'),
-             'glibc-2.31' : ('so', 'linux-x64'),
+os_info = {  'x64-ubuntu-latest' : ('so', 'linux-x64'),
+             'x64-ubuntu-18' : ('so', 'linux-x64'),
+             'x64-ubuntu-20' : ('so', 'linux-x64'),
+             'x64-ubuntu-22' : ('so', 'linux-x64'),
+             'x64-glibc-2.35' : ('so', 'linux-x64'),
              'x64-win' : ('dll', 'win-x64'),
              'x86-win' : ('dll', 'win-x86'),
-             'osx' : ('dylib', 'osx-x64'),
+             'x64-osx' : ('dylib', 'osx-x64'),
              'debian' : ('so', 'linux-x64') }
+
+# Nuget not supported for ARM
+#'arm-glibc-2.35' : ('so', 'linux-arm64'),
+#'arm64-osx' : ('dylib', 'osx-arm64'),
 
         
 
@@ -70,12 +74,27 @@ def unpack(packages, symbols, arch):
                 if symbols:
                     zip_ref.extract(f"{package_dir}/bin/libz3.pdb", f"{tmp}")
                     replace(f"{tmp}/{package_dir}/bin/libz3.pdb", f"out/runtimes/{dst}/native/libz3.pdb") 
-                files = ["Microsoft.Z3.dll"]                
-                if symbols:
-                    files += ["Microsoft.Z3.pdb", "Microsoft.Z3.xml"]
+                files = ["Microsoft.Z3.dll", "Microsoft.Z3.pdb", "Microsoft.Z3.xml"]                
                 for b in files:
-                    zip_ref.extract(f"{package_dir}/bin/{b}", f"{tmp}")
-                    replace(f"{tmp}/{package_dir}/bin/{b}", f"out/lib/netstandard2.0/{b}")
+                    file1 = f"{package_dir}/bin/{b}"
+                    file2 = f"{package_dir}/bin/netstandard2.0/{b}"
+                    found_path = False
+                    # check that file1 exists in zip_ref:
+                    try:
+                        zip_ref.extract(file1, f"{tmp}")
+                        replace(f"{tmp}/{file1}", f"out/lib/netstandard2.0/{b}")
+                        found_path = True
+                    except:
+                        pass
+                    try:
+                        zip_ref.extract(file2, f"{tmp}")
+                        replace(f"{tmp}/{file2}", f"out/lib/netstandard2.0/{b}")
+                        found_path = True
+                    except:
+                        pass
+                    if not found_path:
+                        print(f"Could not find file path {file1} nor {file2}")
+
 
 def mk_targets(source_root):
     mk_dir("out/build")
@@ -84,6 +103,8 @@ def mk_targets(source_root):
 def mk_icon(source_root):
     mk_dir("out/content")
     shutil.copy(f"{source_root}/resources/icon.jpg", "out/content/icon.jpg")
+#   shutil.copy(f"{source_root}/src/api/dotnet/README.md", "out/content/README.md")
+
 
     
 def create_nuget_spec(version, repo, branch, commit, symbols, arch):
